@@ -56,10 +56,13 @@ type AdminOrder = {
   items: { id: number; product_name: string; variant_label: string; sku: string; unit_price: string; quantity: number; total: string }[];
   status_history: { id: number; from_status: string; to_status: string; note: string; created_at: string }[];
 };
+type AdminCustomer = { id: number; email: string; first_name: string; last_name: string; phone: string; status: string; order_count: number; total_spent: string; date_joined: string };
+type PromotionRow = { id: number; name: string; discount_type: 'PERCENT' | 'FIXED'; value: string; starts_at: string; ends_at: string; is_active: boolean };
+type DeliveryZoneRow = { id: number; city: string; shipping_price: string; estimated_delivery_time: string; free_delivery_threshold?: string | null; cash_on_delivery_available: boolean; is_active: boolean };
 
 export function AdminDashboard() {
   const { data } = useQuery({ queryKey: ['admin-dashboard'], queryFn: async () => (await api.get('/admin/dashboard/')).data });
-  const chart = [{ day: 'Lun', ventes: 1200 }, { day: 'Mar', ventes: 2100 }, { day: 'Mer', ventes: 1600 }, { day: 'Jeu', ventes: 2600 }, { day: 'Ven', ventes: 3100 }];
+  const chart = (data?.sales_by_day || []).map((item: { day: string; sales: string }) => ({ day: new Date(item.day).toLocaleDateString('fr-MA', { weekday: 'short' }), ventes: Number(item.sales) }));
   return (
     <div>
       <h1 className="mb-6 font-heading text-3xl font-bold">Dashboard admin</h1>
@@ -81,6 +84,10 @@ export function AdminTablePage() {
   if (section === 'brands') return <BrandsAdmin />;
   if (section === 'imports') return <ProductImportAdmin />;
   if (section === 'orders') return <OrdersAdmin />;
+  if (section === 'inventory') return <InventoryAdmin />;
+  if (section === 'customers') return <CustomersAdmin />;
+  if (section === 'promotions') return <PromotionsAdmin />;
+  if (section === 'settings') return <SettingsAdmin />;
   return <GenericAdmin section={section || 'admin'} />;
 }
 
@@ -339,6 +346,52 @@ function ProductImportAdmin() {
       <div className="card mt-6 p-5"><h2 className="mb-3 font-heading text-xl font-bold">Historique</h2>{history.data?.results.map((item) => <button key={item.id} className="grid w-full gap-2 border-t py-3 text-left md:grid-cols-5" onClick={() => setJob(item)}><span>{item.filename}</span><span>{item.status}</span><span>{new Date(item.created_at).toLocaleString('fr-MA')}</span><span>{item.created_count} crees</span><span>{item.failed_count} erreurs</span></button>)}</div>
     </div>
   );
+}
+
+function InventoryAdmin() {
+  const products = useQuery({ queryKey: ['admin-inventory'], queryFn: async () => (await api.get<Paginated<Product>>('/products/?ordering=name')).data });
+  const rows = products.data?.results.flatMap((product) => product.variants.map((variant) => ({ product: product.name, sku: variant.sku, quantity: variant.inventory?.quantity || 0, available: variant.inventory?.available_quantity || 0, threshold: product.low_stock_threshold }))) || [];
+  return <AdminCrudShell title="Inventaire"><div className="card overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr><th className="p-3">Produit</th><th className="p-3">SKU</th><th className="p-3">Stock</th><th className="p-3">Disponible</th><th className="p-3">Etat</th></tr></thead><tbody>{rows.map((row) => <tr key={row.sku} className="border-t"><td className="p-3 font-semibold">{row.product}</td><td className="p-3">{row.sku}</td><td className="p-3">{row.quantity}</td><td className="p-3">{row.available}</td><td className="p-3"><span className={`badge ${row.quantity <= row.threshold ? 'bg-coral text-white' : 'bg-success/10 text-success'}`}>{row.quantity <= row.threshold ? 'Stock bas' : 'Disponible'}</span></td></tr>)}</tbody></table>{!rows.length && <div className="p-6 text-center text-slate-500">Aucun stock disponible.</div>}</div></AdminCrudShell>;
+}
+
+function CustomersAdmin() {
+  const qc = useQueryClient();
+  const [search, setSearch] = useState('');
+  const customers = useQuery({ queryKey: ['admin-customers', search], queryFn: async () => (await api.get<Paginated<AdminCustomer>>(`/admin/customers/?search=${encodeURIComponent(search)}&ordering=-date_joined`)).data });
+  const toggle = async (customer: AdminCustomer) => {
+    await api.patch(`/admin/customers/${customer.id}/status/`, { status: customer.status === 'ACTIVE' ? 'BLOCKED' : 'ACTIVE' });
+    await qc.invalidateQueries({ queryKey: ['admin-customers'] });
+    toast.success('Statut client mis a jour');
+  };
+  return <AdminCrudShell title="Clients"><div className="card overflow-hidden"><div className="border-b p-4"><input className="input max-w-sm" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher un client" /></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr><th className="p-3">Client</th><th className="p-3">Telephone</th><th className="p-3">Commandes</th><th className="p-3">Total</th><th className="p-3">Statut</th><th className="p-3">Action</th></tr></thead><tbody>{customers.data?.results.map((customer) => <tr key={customer.id} className="border-t"><td className="p-3"><strong>{customer.first_name} {customer.last_name}</strong><p className="text-xs text-slate-500">{customer.email}</p></td><td className="p-3">{customer.phone || '-'}</td><td className="p-3">{customer.order_count}</td><td className="p-3">{money(customer.total_spent || 0)}</td><td className="p-3">{customer.status}</td><td className="p-3"><button className="btn-secondary" onClick={() => toggle(customer)}>{customer.status === 'ACTIVE' ? 'Bloquer' : 'Activer'}</button></td></tr>)}</tbody></table></div></div></AdminCrudShell>;
+}
+
+function PromotionsAdmin() {
+  const qc = useQueryClient();
+  const promotions = useQuery({ queryKey: ['admin-promotions'], queryFn: async () => (await api.get<Paginated<PromotionRow>>('/promotions/?ordering=-created_at')).data });
+  const [form, setForm] = useState({ name: '', discount_type: 'PERCENT', value: '', starts_at: '', ends_at: '', minimum_amount: '0', is_active: true });
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    await api.post('/promotions/', { ...form, starts_at: new Date(form.starts_at).toISOString(), ends_at: new Date(form.ends_at).toISOString(), products: [], categories: [] });
+    setForm({ name: '', discount_type: 'PERCENT', value: '', starts_at: '', ends_at: '', minimum_amount: '0', is_active: true });
+    await qc.invalidateQueries({ queryKey: ['admin-promotions'] });
+    toast.success('Promotion ajoutee');
+  };
+  return <AdminCrudShell title="Promotions"><form className="card mb-6 grid gap-3 p-4 md:grid-cols-3" onSubmit={save}><input required className="input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Nom" /><select className="input" value={form.discount_type} onChange={(event) => setForm({ ...form, discount_type: event.target.value })}><option value="PERCENT">Pourcentage</option><option value="FIXED">Montant fixe</option></select><input required className="input" type="number" min="0" step="0.01" value={form.value} onChange={(event) => setForm({ ...form, value: event.target.value })} placeholder="Valeur" /><label className="grid gap-1 text-sm">Debut<input required className="input" type="datetime-local" value={form.starts_at} onChange={(event) => setForm({ ...form, starts_at: event.target.value })} /></label><label className="grid gap-1 text-sm">Fin<input required className="input" type="datetime-local" value={form.ends_at} onChange={(event) => setForm({ ...form, ends_at: event.target.value })} /></label><button className="btn-primary self-end"><Plus className="h-4 w-4" />Ajouter</button></form><div className="card overflow-hidden"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr><th className="p-3">Nom</th><th className="p-3">Remise</th><th className="p-3">Periode</th><th className="p-3">Etat</th><th className="p-3">Action</th></tr></thead><tbody>{promotions.data?.results.map((promotion) => <tr key={promotion.id} className="border-t"><td className="p-3 font-semibold">{promotion.name}</td><td className="p-3">{promotion.value}{promotion.discount_type === 'PERCENT' ? '%' : ' MAD'}</td><td className="p-3">{new Date(promotion.starts_at).toLocaleDateString('fr-MA')} - {new Date(promotion.ends_at).toLocaleDateString('fr-MA')}</td><td className="p-3">{promotion.is_active ? 'Active' : 'Inactive'}</td><td className="p-3"><button className="btn-secondary text-coral" onClick={() => api.delete(`/promotions/${promotion.id}/`).then(() => qc.invalidateQueries({ queryKey: ['admin-promotions'] }))}><Trash2 className="h-4 w-4" /></button></td></tr>)}</tbody></table></div></AdminCrudShell>;
+}
+
+function SettingsAdmin() {
+  const qc = useQueryClient();
+  const zones = useQuery({ queryKey: ['admin-zones'], queryFn: async () => (await api.get<Paginated<DeliveryZoneRow>>('/delivery-zones/')).data });
+  const [form, setForm] = useState({ city: '', shipping_price: '', estimated_delivery_time: '24-72h', free_delivery_threshold: '', cash_on_delivery_available: true, is_active: true });
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    await api.post('/delivery-zones/', { ...form, free_delivery_threshold: form.free_delivery_threshold || null });
+    setForm({ city: '', shipping_price: '', estimated_delivery_time: '24-72h', free_delivery_threshold: '', cash_on_delivery_available: true, is_active: true });
+    await qc.invalidateQueries({ queryKey: ['admin-zones'] });
+    toast.success('Zone de livraison ajoutee');
+  };
+  return <AdminCrudShell title="Parametres de livraison"><form className="card mb-6 grid gap-3 p-4 md:grid-cols-4" onSubmit={save}><input required className="input" value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} placeholder="Ville" /><input required className="input" type="number" min="0" step="0.01" value={form.shipping_price} onChange={(event) => setForm({ ...form, shipping_price: event.target.value })} placeholder="Prix livraison" /><input className="input" value={form.estimated_delivery_time} onChange={(event) => setForm({ ...form, estimated_delivery_time: event.target.value })} placeholder="Delai" /><input className="input" type="number" min="0" step="0.01" value={form.free_delivery_threshold} onChange={(event) => setForm({ ...form, free_delivery_threshold: event.target.value })} placeholder="Gratuite des (MAD)" /><label className="flex items-center gap-2"><input type="checkbox" checked={form.cash_on_delivery_available} onChange={(event) => setForm({ ...form, cash_on_delivery_available: event.target.checked })} /> Paiement livraison</label><button className="btn-primary"><Plus className="h-4 w-4" />Ajouter</button></form><div className="card overflow-hidden"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr><th className="p-3">Ville</th><th className="p-3">Prix</th><th className="p-3">Delai</th><th className="p-3">COD</th><th className="p-3">Action</th></tr></thead><tbody>{zones.data?.results.map((zone) => <tr key={zone.id} className="border-t"><td className="p-3 font-semibold">{zone.city}</td><td className="p-3">{money(zone.shipping_price)}</td><td className="p-3">{zone.estimated_delivery_time}</td><td className="p-3">{zone.cash_on_delivery_available ? 'Oui' : 'Non'}</td><td className="p-3"><button className="btn-secondary text-coral" onClick={() => api.delete(`/delivery-zones/${zone.id}/`).then(() => qc.invalidateQueries({ queryKey: ['admin-zones'] }))}><Trash2 className="h-4 w-4" /></button></td></tr>)}</tbody></table></div></AdminCrudShell>;
 }
 
 function Rows<T extends { id: number; name: string; slug: string; is_archived?: boolean; display_order?: number; parent?: number | null; description?: string }>({ rows, onEdit, onArchive, onDelete }: { rows: T[]; onEdit: (row: T) => void; onArchive?: (row: T) => void; onDelete: (row: T) => void }) {

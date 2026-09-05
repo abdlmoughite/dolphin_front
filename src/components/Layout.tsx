@@ -1,6 +1,6 @@
 import { Menu, Search, ShoppingCart, User, X } from 'lucide-react';
-import { ReactNode, useState } from 'react';
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { FormEvent, ReactNode, useState } from 'react';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import logo from '../assets/dolphin-logo.svg';
 import { useAuth } from '../stores/auth';
 import { useCart } from '../stores/cart';
@@ -16,9 +16,16 @@ const nav = [
 
 export function StoreLayout() {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { cart } = useCart();
   const cartCount = cart?.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
+  const submitSearch = (event: FormEvent) => {
+    event.preventDefault();
+    const value = search.trim();
+    navigate(value ? `/catalogue?search=${encodeURIComponent(value)}` : '/catalogue');
+  };
   return (
     <div className="min-h-screen bg-mist">
       <div className="bg-coral px-4 py-2 text-center text-sm font-bold text-white">Livraison gratuite des 600 DH selon la ville</div>
@@ -29,11 +36,12 @@ export function StoreLayout() {
           <nav className="hidden items-center gap-5 md:flex">
             {nav.map(([label, to]) => <NavLink key={to} to={to} className={({ isActive }) => `font-semibold ${isActive ? 'text-ocean' : 'text-navy'}`}>{label}</NavLink>)}
           </nav>
-          <form className="ml-auto hidden min-w-64 max-w-md flex-1 items-center gap-2 rounded-dolphin border border-slate-200 px-3 py-2 lg:flex">
-            <Search className="h-5 w-5 text-ocean" /><input className="w-full bg-transparent" placeholder="Rechercher un produit" />
+          <form className="ml-auto hidden min-w-64 max-w-md flex-1 items-center gap-2 rounded-dolphin border border-slate-200 px-3 py-2 lg:flex" onSubmit={submitSearch}>
+            <Search className="h-5 w-5 text-ocean" /><input className="w-full bg-transparent outline-none" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher un produit" aria-label="Rechercher un produit" />
           </form>
           <Link to="/panier" aria-label="Panier" className="relative rounded-full p-2 hover:bg-mist"><ShoppingCart /><span className="absolute -right-1 -top-1 rounded-full bg-coral px-1.5 text-xs font-bold text-white">{cartCount}</span></Link>
-          {user && user.role !== 'CUSTOMER' && <><Link className="btn-secondary hidden sm:inline-flex" to={user.role === 'SUPER_ADMIN' ? '/developer' : '/admin/dashboard'}>Admin</Link><button className="btn-secondary hidden sm:inline-flex" onClick={logout}>Sortir</button></>}
+          {!user && <Link className="rounded-full p-2 hover:bg-mist" to="/connexion" aria-label="Connexion"><User /></Link>}
+          {user && <><Link className="btn-secondary hidden sm:inline-flex" to={user.role === 'CUSTOMER' ? '/compte' : user.role === 'SUPER_ADMIN' ? '/developer' : '/admin/dashboard'}>{user.role === 'CUSTOMER' ? 'Mon compte' : 'Admin'}</Link><button className="btn-secondary hidden sm:inline-flex" onClick={logout}>Sortir</button></>}
         </div>
       </header>
       {open && (
@@ -41,7 +49,8 @@ export function StoreLayout() {
           <aside className="h-full w-80 bg-white p-4" onClick={(e) => e.stopPropagation()}>
             <button className="mb-4 ml-auto block" onClick={() => setOpen(false)} aria-label="Fermer"><X /></button>
             <img src={logo} alt="DOLPHIN" className="mb-6 h-12" />
-            <div className="grid gap-3">{nav.map(([label, to]) => <Link key={to} to={to} onClick={() => setOpen(false)} className="rounded-dolphin px-3 py-2 font-semibold hover:bg-mist">{label}</Link>)}</div>
+            <form className="mb-4 flex items-center gap-2 rounded-dolphin border px-3 py-2" onSubmit={(event) => { submitSearch(event); setOpen(false); }}><Search className="h-5 w-5 text-ocean" /><input className="w-full outline-none" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher" /></form>
+            <div className="grid gap-3">{nav.map(([label, to]) => <Link key={to} to={to} onClick={() => setOpen(false)} className="rounded-dolphin px-3 py-2 font-semibold hover:bg-mist">{label}</Link>)}<Link to={user ? (user.role === 'CUSTOMER' ? '/compte' : '/admin/dashboard') : '/connexion'} onClick={() => setOpen(false)} className="rounded-dolphin px-3 py-2 font-semibold hover:bg-mist">{user ? 'Mon espace' : 'Connexion'}</Link>{user && <button className="rounded-dolphin px-3 py-2 text-left font-semibold hover:bg-mist" onClick={() => { logout(); setOpen(false); }}>Deconnexion</button>}</div>
           </aside>
         </div>
       )}

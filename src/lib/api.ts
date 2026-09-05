@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import toast from 'react-hot-toast';
 
 export const api = axios.create({
@@ -17,9 +18,33 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+type RetryableRequest = InternalAxiosRequestConfig & { _retry?: boolean };
+let refreshRequest: Promise<string> | null = null;
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error: AxiosError<{ detail?: string }>) => {
+    const request = error.config as RetryableRequest | undefined;
+    const refresh = localStorage.getItem('dolphin_refresh');
+    const isAuthRequest = request?.url?.includes('/auth/login/') || request?.url?.includes('/auth/refresh/');
+    if (error.response?.status === 401 && request && refresh && !request._retry && !isAuthRequest) {
+      request._retry = true;
+      refreshRequest ||= axios
+        .post<{ access: string }>(`${API_BASE}/auth/refresh/`, { refresh })
+        .then(({ data }) => {
+          localStorage.setItem('dolphin_access', data.access);
+          return data.access;
+        })
+        .finally(() => { refreshRequest = null; });
+      try {
+        const access = await refreshRequest;
+        request.headers.Authorization = `Bearer ${access}`;
+        return api(request);
+      } catch {
+        localStorage.removeItem('dolphin_access');
+        localStorage.removeItem('dolphin_refresh');
+      }
+    }
     const message = error.response?.data?.detail || 'Une erreur est survenue.';
     if (error.response?.status !== 401) toast.error(message);
     return Promise.reject(error);
@@ -27,7 +52,7 @@ api.interceptors.response.use(
 );
 
 export type Paginated<T> = { count: number; results: T[] };
-export type User = { id: number; email: string; first_name: string; last_name: string; role: string; status: string; phone?: string };
+export type User = { id: number; email: string; username: string; first_name: string; last_name: string; role: string; status: string; phone?: string; avatar?: string | null };
 export type Category = { id: number; name: string; slug: string; description: string; image?: string | null; product_count?: number; parent?: number | null; display_order?: number; is_archived?: boolean };
 export type Brand = { id: number; name: string; slug: string; logo?: string | null };
 export type Variant = { id: number; sku: string; price: string; price_override?: string | null; inventory?: { quantity: number; available_quantity: number }; values: { id: number; value: string; color_hex?: string }[] };
@@ -58,6 +83,9 @@ export type CartItem = { id: number; variant: Variant & { product?: Product }; q
 export type Cart = { id: number; items: CartItem[]; subtotal: string; discount_total: string; total: string };
 export type Order = { id: number; order_number: string; status: string; total: string; created_at: string; items: unknown[]; status_history: { to_status: string; created_at: string; note: string }[] };
 export type HomepageBanner = { id: number; title: string; subtitle: string; image?: string | null; cta_label: string; cta_url: string };
+export type WishlistItem = { id: number; product: Product; created_at: string };
+export type CustomerNotification = { id: number; title: string; message: string; is_read: boolean; created_at: string };
+export type CustomerAddress = { id: number; label: string; full_name: string; phone: string; address_line1: string; address_line2?: string; city: string; postal_code?: string; is_default: boolean };
 
 export function mediaUrl(path?: string | null) {
   if (!path) return '';

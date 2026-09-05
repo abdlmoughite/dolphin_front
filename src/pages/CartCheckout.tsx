@@ -10,18 +10,18 @@ import { money } from '../lib/i18n';
 import { useCart } from '../stores/cart';
 
 export function CartPage() {
-  const { cart, load, applyCoupon } = useCart();
+  const { cart, update, remove, applyCoupon } = useCart();
   const { register, handleSubmit } = useForm<{ code: string }>();
   return (
     <section className="mx-auto max-w-5xl px-4 py-8">
       <h1 className="mb-6 font-heading text-3xl font-bold">Panier</h1>
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-        <div className="grid gap-3">{cart?.items?.length ? cart.items.map((item) => <div key={item.id} className="card flex items-center justify-between gap-4 p-4"><div><h2 className="font-bold">{item.variant.sku}</h2><p className="text-slate-600">Quantite: {item.quantity}</p></div><strong>{money(item.line_total)}</strong><button className="rounded-full p-2 text-coral" onClick={() => api.delete('/cart/remove/', { data: { item_id: item.id } }).then(load)}><Trash2 /></button></div>) : <div className="card p-8 text-center">Votre panier est vide.</div>}</div>
+        <div className="grid gap-3">{cart?.items?.length ? cart.items.map((item) => <div key={item.id} className="card flex flex-wrap items-center justify-between gap-4 p-4"><div><h2 className="font-bold">{item.variant.sku}</h2><div className="mt-2 flex items-center gap-2"><button className="btn-secondary h-9 w-9 p-0" disabled={item.quantity <= 1} onClick={() => update(item.id, item.quantity - 1)}>-</button><span className="min-w-8 text-center font-semibold">{item.quantity}</span><button className="btn-secondary h-9 w-9 p-0" disabled={item.quantity >= (item.variant.inventory?.available_quantity || 0)} onClick={() => update(item.id, item.quantity + 1)}>+</button></div></div><strong>{money(item.line_total)}</strong><button className="rounded-full p-2 text-coral" aria-label="Supprimer du panier" onClick={() => remove(item.id)}><Trash2 /></button></div>) : <div className="card p-8 text-center">Votre panier est vide.</div>}</div>
         <aside className="card grid gap-4 p-5">
           <h2 className="font-heading text-xl font-bold">Resume</h2>
           <Row label="Sous-total" value={money(cart?.subtotal || 0)} /><Row label="Remise" value={money(cart?.discount_total || 0)} /><Row label="Total" value={money(cart?.total || 0)} strong />
           <form className="flex gap-2" onSubmit={handleSubmit((v) => applyCoupon(v.code).then(() => toast.success('Coupon applique')))}><input className="input" placeholder="Coupon" {...register('code')} /><button className="btn-secondary"><Ticket className="h-4 w-4" /></button></form>
-          <Link className="btn-primary" to="/checkout">Commander</Link>
+          {cart?.items?.length ? <Link className="btn-primary" to="/checkout">Commander</Link> : <Link className="btn-secondary" to="/catalogue">Voir le catalogue</Link>}
         </aside>
       </div>
     </section>

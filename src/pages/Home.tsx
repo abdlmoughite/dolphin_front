@@ -1,11 +1,14 @@
 import { CircleHelp, Clock3, Headphones, Mail, MapPin, MessageCircle, Phone, Search, ShieldCheck, Tag, TrendingUp, Truck, WalletCards, Wand2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { api, Brand, Category, HomepageBanner, mediaUrl, Paginated, Product } from '../lib/api';
 import { ProductCard } from '../components/ProductCard';
 import { EmptyState, LoadingGrid } from '../components/States';
 
 export function HomePage() {
+  const [newsletterEmail, setNewsletterEmail] = useState('');
   const featured = useQuery({ queryKey: ['home-featured'], queryFn: async () => (await api.get<Paginated<Product>>('/products/?featured=true')).data });
   const newest = useQuery({ queryKey: ['home-newest'], queryFn: async () => (await api.get<Paginated<Product>>('/products/?new_arrival=true&ordering=-created_at')).data });
   const bestsellers = useQuery({ queryKey: ['home-bestsellers'], queryFn: async () => (await api.get<Paginated<Product>>('/products/?bestseller=true&ordering=-sales_count')).data });
@@ -13,6 +16,12 @@ export function HomePage() {
   const categories = useQuery({ queryKey: ['categories'], queryFn: async () => (await api.get<Paginated<Category>>('/categories/?is_active=true')).data });
   const banners = useQuery({ queryKey: ['banners'], queryFn: async () => (await api.get<Paginated<HomepageBanner>>('/banners/')).data });
   const banner = banners.data?.results?.[0];
+  const subscribe = async (event: FormEvent) => {
+    event.preventDefault();
+    await api.post('/newsletter/subscribe/', { email: newsletterEmail });
+    setNewsletterEmail('');
+    toast.success('Inscription confirmee');
+  };
   return (
     <>
       <section className="wave px-4 py-10">
@@ -41,7 +50,7 @@ export function HomePage() {
           {[['Livraison flexible', Truck], ['Paiement securise', WalletCards], ['Support verifie', ShieldCheck]].map(([label, Icon]) => <div key={String(label)} className="rounded-dolphin border border-slate-200 p-5"><Icon className="mb-3 text-ocean" /><h3 className="font-heading text-lg font-bold">{String(label)}</h3><p className="text-slate-600">Pourquoi choisir DOLPHIN: prix clairs, suivi commande et service client en francais.</p></div>)}
         </div>
       </section>
-      <section className="mx-auto max-w-7xl px-4 py-12"><div className="card grid gap-4 p-6 md:grid-cols-[1fr_auto]"><div><h2 className="font-heading text-2xl font-bold">Newsletter</h2><p className="text-slate-600">Recevez les nouveautes et promotions.</p></div><form className="flex gap-2"><input className="input" placeholder="email@exemple.com" /><button className="btn-primary">S'inscrire</button></form></div></section>
+      <section className="mx-auto max-w-7xl px-4 py-12"><div className="card grid gap-4 p-6 md:grid-cols-[1fr_auto]"><div><h2 className="font-heading text-2xl font-bold">Newsletter</h2><p className="text-slate-600">Recevez les nouveautes et promotions.</p></div><form className="flex gap-2" onSubmit={subscribe}><input required className="input" type="email" value={newsletterEmail} onChange={(event) => setNewsletterEmail(event.target.value)} placeholder="email@exemple.com" /><button className="btn-primary">S'inscrire</button></form></div></section>
     </>
   );
 }
@@ -54,7 +63,7 @@ function ProductShelf({ title, icon, query }: { title: string; icon: JSX.Element
         <h2 className="flex items-center gap-2 font-heading text-2xl font-bold">{icon}{title}</h2>
         <Link className="btn-secondary" to={title === 'Promotions' ? '/catalogue?promotion=true' : '/catalogue'}>Voir tout</Link>
       </div>
-      {query.isLoading ? <LoadingGrid /> : products.length ? <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{products.map((p) => <ProductCard key={p.id} product={p} />)}</div> : <EmptyState title="Aucun produit" text="Le seed remplira cette section depuis Django." />}
+      {query.isLoading ? <LoadingGrid /> : products.length ? <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{products.map((p) => <ProductCard key={p.id} product={p} />)}</div> : <EmptyState title="Aucun produit" text="Cette selection sera disponible prochainement." />}
     </section>
   );
 }
