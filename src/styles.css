@@ -1,0 +1,20 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color: #0B1F33; background: #F1FAFD; }
+body { margin: 0; font-family: Inter, sans-serif; }
+button, a, input, select, textarea { outline-color: #0077B6; }
+.wave {
+  background:
+    radial-gradient(circle at 15% 0%, rgba(72, 202, 228, .22), transparent 28rem),
+    linear-gradient(180deg, #F1FAFD 0%, #fff 100%);
+}
+.card { @apply rounded-dolphin bg-white shadow-sm ring-1 ring-slate-200; }
+.btn { @apply inline-flex items-center justify-center gap-2 rounded-dolphin px-4 py-2 font-semibold transition focus-visible:ring-2 focus-visible:ring-ocean; }
+.btn-primary { @apply btn bg-ocean text-white hover:bg-[#00649a]; }
+.btn-secondary { @apply btn bg-white text-ocean ring-1 ring-ocean hover:bg-mist; }
+.input { @apply w-full rounded-dolphin border border-slate-300 bg-white px-3 py-2 focus:border-ocean focus:ring-2 focus:ring-aqua/40; }
+.badge { @apply rounded-full px-2.5 py-1 text-xs font-bold; }
+.skeleton { @apply animate-pulse rounded-dolphin bg-slate-200; }
