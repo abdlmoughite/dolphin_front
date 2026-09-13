@@ -3,12 +3,13 @@ import { useEffect } from 'react';
 import { StoreLayout, AdminLayout } from './components/Layout';
 import { useAuth } from './stores/auth';
 import { useCart } from './stores/cart';
-import { AdminDashboard, AdminTablePage } from './pages/Admin';
+import { AdminDashboard, AdminOrderDetailPage, AdminProductEditPage, AdminProductNewPage, AdminTablePage } from './pages/Admin';
 import { CartPage, CheckoutPage, ConfirmationPage } from './pages/CartCheckout';
 import { CatalogPage, ProductDetailsPage } from './pages/Catalog';
 import { BrandsPage, HelpPage, HomePage, NewArrivalsPage, PromotionsPage, SimplePage } from './pages/Home';
 import { DeveloperPage } from './pages/Developer';
 import { LoginPage, RegisterPage } from './pages/Auth';
+import { CustomerDashboard } from './pages/Customer';
 
 function Protected({ children, admin = false, developer = false }: { children: JSX.Element; admin?: boolean; developer?: boolean }) {
   const { user } = useAuth();
@@ -30,7 +31,7 @@ const router = createBrowserRouter([
       { path: '/confirmation/:id', element: <ConfirmationPage /> },
       { path: '/connexion', element: <LoginPage /> },
       { path: '/inscription', element: <RegisterPage /> },
-      { path: '/compte/*', element: <SimplePage title="Espace client desactive" /> },
+      { path: '/compte/*', element: <Protected><CustomerDashboard /></Protected> },
       { path: '/promotions', element: <PromotionsPage /> },
       { path: '/nouveautes', element: <NewArrivalsPage /> },
       { path: '/marques', element: <BrandsPage /> },
@@ -44,6 +45,9 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/admin/dashboard" replace /> },
       { path: 'dashboard', element: <AdminDashboard /> },
+      { path: 'orders/:id', element: <AdminOrderDetailPage /> },
+      { path: 'products/new', element: <AdminProductNewPage /> },
+      { path: 'products/:slug/edit', element: <AdminProductEditPage /> },
       { path: ':section', element: <AdminTablePage /> },
     ],
   },

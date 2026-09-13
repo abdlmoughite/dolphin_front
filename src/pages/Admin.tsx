@@ -1,7 +1,7 @@
 import { Archive, BarChart3, Boxes, Check, Copy, Download, Edit, PackageCheck, Plus, RotateCcw, Save, Trash2, Truck, Upload, Users, X } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, Brand, Category, downloadFile, Paginated, Product } from '../lib/api';
@@ -59,7 +59,7 @@ type AdminOrder = {
 
 export function AdminDashboard() {
   const { data } = useQuery({ queryKey: ['admin-dashboard'], queryFn: async () => (await api.get('/admin/dashboard/')).data });
-  const chart = [{ day: 'Lun', ventes: 1200 }, { day: 'Mar', ventes: 2100 }, { day: 'Mer', ventes: 1600 }, { day: 'Jeu', ventes: 2600 }, { day: 'Ven', ventes: 3100 }];
+  const chart = (data?.sales_by_day || []).map((row: { day: string; sales: string | number }) => ({ day: new Date(row.day).toLocaleDateString('fr-MA', { weekday: 'short' }), ventes: Number(row.sales || 0) }));
   return (
     <div>
       <h1 className="mb-6 font-heading text-3xl font-bold">Dashboard admin</h1>
@@ -81,7 +81,19 @@ export function AdminTablePage() {
   if (section === 'brands') return <BrandsAdmin />;
   if (section === 'imports') return <ProductImportAdmin />;
   if (section === 'orders') return <OrdersAdmin />;
-  return <GenericAdmin section={section || 'admin'} />;
+  if (section === 'inventory') return <InventoryAdmin />;
+  if (section === 'customers') return <CustomersAdmin />;
+  if (section === 'coupons') return <ResourceAdmin title="Coupons" endpoint="/coupons/" fields={couponFields} />;
+  if (section === 'promotions') return <ResourceAdmin title="Promotions" endpoint="/promotions/" fields={promotionFields} />;
+  if (section === 'delivery-zones') return <ResourceAdmin title="Zones de livraison" endpoint="/delivery-zones/" fields={deliveryZoneFields} />;
+  if (section === 'banners') return <ResourceAdmin title="Bannieres homepage" endpoint="/banners/" fields={bannerFields} />;
+  if (section === 'reviews') return <ModerationAdmin title="Avis produits" endpoint="/reviews/" />;
+  if (section === 'support') return <ModerationAdmin title="Support client" endpoint="/support/" />;
+  if (section === 'returns') return <ModerationAdmin title="Retours" endpoint="/returns/" />;
+  if (section === 'settings') return <DesignSettingsAdmin />;
+  if (section === 'reports') return <ReportsAdmin />;
+  if (section === 'audit-logs') return <AuditLogsAdmin />;
+  return <NavigateBack />;
 }
 
 function OrdersAdmin() {
@@ -215,7 +227,7 @@ function CancelOrderModal({ order, onClose, onConfirm }: { order: AdminOrder; on
   );
 }
 
-function ProductModal({ product, categories, brands, onClose, onSaved }: { product: Product | null; categories: Category[]; brands: Brand[]; onClose: () => void; onSaved: () => void }) {
+function ProductModal({ product, categories, brands, onClose, onSaved, embedded = false }: { product: Product | null; categories: Category[]; brands: Brand[]; onClose: () => void; onSaved: () => void; embedded?: boolean }) {
   const [files, setFiles] = useState<FileList | null>(null);
   const [form, setForm] = useState<ProductForm>(() => ({
     slug: product?.slug,
@@ -245,8 +257,7 @@ function ProductModal({ product, categories, brands, onClose, onSaved }: { produ
     toast.success('Produit enregistre');
     onSaved();
   };
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-navy/40 p-4">
+  const formNode = (
       <form className="card mx-auto grid max-w-4xl gap-4 p-6" onSubmit={save}>
         <div className="flex items-center justify-between"><h2 className="font-heading text-2xl font-bold">{product ? 'Modifier le produit' : 'Nouveau produit'}</h2><button type="button" onClick={onClose}><X /></button></div>
         <div className="grid gap-4 md:grid-cols-2"><input required className="input" placeholder="Nom" value={form.name} onChange={(e) => set('name', e.target.value)} /><input required className="input" placeholder="SKU unique" value={form.sku} onChange={(e) => set('sku', e.target.value)} /><select required className="input" value={form.category_id} onChange={(e) => set('category_id', e.target.value)}><option value="">Categorie</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><select className="input" value={form.brand_id} onChange={(e) => set('brand_id', e.target.value)}><option value="">Marque</option>{brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select><input required className="input" type="number" step="0.01" placeholder="Prix normal" value={form.regular_price} onChange={(e) => set('regular_price', e.target.value)} /><input className="input" type="number" step="0.01" placeholder="Prix promo" value={form.promotional_price || ''} onChange={(e) => set('promotional_price', e.target.value)} /><input className="input" type="number" placeholder="Seuil stock bas" value={form.low_stock_threshold} onChange={(e) => set('low_stock_threshold', Number(e.target.value))} /><select className="input" value={form.status} onChange={(e) => set('status', e.target.value)}><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option><option value="OUT_OF_STOCK">Rupture</option><option value="ARCHIVED">Archive</option></select></div>
@@ -256,6 +267,11 @@ function ProductModal({ product, categories, brands, onClose, onSaved }: { produ
         <label className="grid gap-1 font-semibold">Images produit<input className="input" type="file" multiple accept="image/png,image/jpeg,image/webp" onChange={(e) => setFiles(e.target.files)} /></label>
         <button className="btn-primary"><Save className="h-4 w-4" />Enregistrer</button>
       </form>
+  );
+  if (embedded) return formNode;
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-navy/40 p-4">
+      {formNode}
     </div>
   );
 }
@@ -341,6 +357,205 @@ function ProductImportAdmin() {
   );
 }
 
+export function AdminProductNewPage() {
+  const navigate = useNavigate();
+  const categories = useQuery({ queryKey: ['admin-categories'], queryFn: async () => (await api.get<Paginated<Category>>('/categories/?is_archived=false')).data });
+  const brands = useQuery({ queryKey: ['admin-brands'], queryFn: async () => (await api.get<Paginated<Brand>>('/brands/')).data });
+  return (
+    <div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><h1 className="font-heading text-3xl font-bold">Nouveau produit</h1><Link className="btn-secondary" to="/admin/products">Retour</Link></div>
+      <ProductModal product={null} categories={categories.data?.results || []} brands={brands.data?.results || []} onClose={() => navigate('/admin/products')} onSaved={() => navigate('/admin/products')} embedded />
+    </div>
+  );
+}
+
+export function AdminProductEditPage() {
+  const navigate = useNavigate();
+  const { slug } = useParams();
+  const categories = useQuery({ queryKey: ['admin-categories'], queryFn: async () => (await api.get<Paginated<Category>>('/categories/?is_archived=false')).data });
+  const brands = useQuery({ queryKey: ['admin-brands'], queryFn: async () => (await api.get<Paginated<Brand>>('/brands/')).data });
+  const product = useQuery({ queryKey: ['admin-product', slug], enabled: Boolean(slug), queryFn: async () => (await api.get<Product>(`/products/${slug}/`)).data });
+  if (product.isLoading) return <AdminCrudShell title="Produit"><div className="card p-6">Chargement du produit...</div></AdminCrudShell>;
+  if (!product.data) return <AdminCrudShell title="Produit"><div className="card p-6 text-coral">Produit introuvable.</div></AdminCrudShell>;
+  return (
+    <div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><h1 className="font-heading text-3xl font-bold">Modifier produit</h1><Link className="btn-secondary" to="/admin/products">Retour</Link></div>
+      <ProductModal product={product.data} categories={categories.data?.results || []} brands={brands.data?.results || []} onClose={() => navigate('/admin/products')} onSaved={() => navigate('/admin/products')} embedded />
+    </div>
+  );
+}
+
+export function AdminOrderDetailPage() {
+  const { id } = useParams();
+  const [editing, setEditing] = useState<AdminOrder | null>(null);
+  const order = useQuery({ queryKey: ['admin-order', id], enabled: Boolean(id), queryFn: async () => (await api.get<AdminOrder>(`/orders/${id}/`)).data });
+  if (order.isLoading) return <AdminCrudShell title="Commande"><div className="card p-6">Chargement de la commande...</div></AdminCrudShell>;
+  if (!order.data) return <AdminCrudShell title="Commande"><div className="card p-6 text-coral">Commande introuvable.</div></AdminCrudShell>;
+  return (
+    <div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><div><h1 className="font-heading text-3xl font-bold">{order.data.order_number}</h1><p className="text-sm text-slate-500">{new Date(order.data.created_at).toLocaleString('fr-MA')} - {statusLabel(order.data.status)}</p></div><div className="flex gap-2"><Link className="btn-secondary" to="/admin/orders">Retour</Link><button className="btn-primary" onClick={() => setEditing(order.data)}><Edit className="h-4 w-4" />Modifier</button></div></div>
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <div className="card overflow-hidden"><h2 className="border-b p-4 font-heading text-xl font-bold">Articles</h2>{order.data.items.map((item) => <div key={item.id} className="grid gap-2 border-b p-4 text-sm md:grid-cols-[1fr_auto_auto_auto]"><span><strong>{item.product_name}</strong><p className="text-slate-500">{item.variant_label || item.sku}</p></span><span>Qte {item.quantity}</span><span>{money(item.unit_price)}</span><strong>{money(item.total)}</strong></div>)}<div className="grid gap-2 p-4 text-sm md:ml-auto md:w-80"><MoneyRow label="Sous-total" value={money(order.data.subtotal)} /><MoneyRow label="Remise" value={money(order.data.discount_total)} /><MoneyRow label="Livraison" value={money(order.data.shipping_total)} /><MoneyRow label="Total" value={money(order.data.total)} strong /></div></div>
+        <aside className="grid gap-6"><div className="card p-5"><h2 className="mb-3 font-heading text-xl font-bold">Client</h2><p className="font-semibold">{order.data.shipping_full_name}</p><p>{order.data.shipping_phone}</p><p>{order.data.guest_email}</p><p className="mt-3 text-slate-600">{order.data.shipping_address}, {order.data.shipping_city}</p></div><div className="card p-5"><h2 className="mb-3 font-heading text-xl font-bold">Timeline</h2><div className="grid gap-3">{order.data.status_history.map((event) => <div key={event.id} className="border-l-2 border-ocean pl-3"><strong>{statusLabel(event.to_status)}</strong><p className="text-xs text-slate-500">{new Date(event.created_at).toLocaleString('fr-MA')}</p>{event.note && <p className="text-sm text-slate-600">{event.note}</p>}</div>)}</div></div></aside>
+      </div>
+      {editing && <OrderEditModal order={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); order.refetch(); }} />}
+    </div>
+  );
+}
+
+type ResourceField = { key: string; label: string; type?: 'text' | 'number' | 'date' | 'datetime-local' | 'checkbox' | 'select'; options?: string[]; required?: boolean };
+type ResourceRow = Record<string, string | number | boolean | null | undefined> & { id: number };
+
+const couponFields: ResourceField[] = [
+  { key: 'code', label: 'Code', required: true },
+  { key: 'discount_type', label: 'Type', type: 'select', options: ['PERCENT', 'FIXED', 'FREE_DELIVERY'], required: true },
+  { key: 'value', label: 'Valeur', type: 'number' },
+  { key: 'minimum_amount', label: 'Minimum', type: 'number' },
+  { key: 'starts_at', label: 'Debut', type: 'datetime-local', required: true },
+  { key: 'ends_at', label: 'Fin', type: 'datetime-local', required: true },
+  { key: 'max_usage', label: 'Limite globale', type: 'number' },
+  { key: 'max_usage_per_customer', label: 'Limite/client', type: 'number' },
+  { key: 'first_order_only', label: 'Premiere commande', type: 'checkbox' },
+  { key: 'is_active', label: 'Actif', type: 'checkbox' },
+];
+const promotionFields: ResourceField[] = [
+  { key: 'name', label: 'Nom', required: true },
+  { key: 'discount_type', label: 'Type', type: 'select', options: ['PERCENT', 'FIXED'], required: true },
+  { key: 'value', label: 'Valeur', type: 'number' },
+  { key: 'minimum_amount', label: 'Minimum', type: 'number' },
+  { key: 'starts_at', label: 'Debut', type: 'datetime-local', required: true },
+  { key: 'ends_at', label: 'Fin', type: 'datetime-local', required: true },
+  { key: 'is_active', label: 'Actif', type: 'checkbox' },
+];
+const deliveryZoneFields: ResourceField[] = [
+  { key: 'city', label: 'Ville', required: true },
+  { key: 'shipping_price', label: 'Prix livraison', type: 'number', required: true },
+  { key: 'estimated_delivery_time', label: 'Delai' },
+  { key: 'free_delivery_threshold', label: 'Seuil gratuit', type: 'number' },
+  { key: 'cash_on_delivery_available', label: 'COD', type: 'checkbox' },
+  { key: 'is_active', label: 'Actif', type: 'checkbox' },
+];
+const bannerFields: ResourceField[] = [
+  { key: 'title', label: 'Titre', required: true },
+  { key: 'subtitle', label: 'Sous-titre' },
+  { key: 'cta_label', label: 'CTA' },
+  { key: 'cta_url', label: 'URL CTA' },
+  { key: 'starts_at', label: 'Debut', type: 'datetime-local' },
+  { key: 'ends_at', label: 'Fin', type: 'datetime-local' },
+  { key: 'is_active', label: 'Actif', type: 'checkbox' },
+];
+
+function emptyForm(fields: ResourceField[]) {
+  return Object.fromEntries(fields.map((field) => [field.key, field.type === 'checkbox' ? true : '']));
+}
+
+function ResourceAdmin({ title, endpoint, fields }: { title: string; endpoint: string; fields: ResourceField[] }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<ResourceRow | null>(null);
+  const [form, setForm] = useState<Record<string, string | boolean | number>>(emptyForm(fields));
+  const query = useQuery({ queryKey: ['resource', endpoint], queryFn: async () => (await api.get<Paginated<ResourceRow>>(endpoint)).data });
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const payload = Object.fromEntries(fields.map((field) => [field.key, normalizeField(field, form[field.key])]));
+    if (editing) {
+      await api.patch(`${endpoint}${editing.id}/`, payload);
+    } else {
+      await api.post(endpoint, payload);
+    }
+    toast.success('Enregistre');
+    setEditing(null);
+    setForm(emptyForm(fields));
+    qc.invalidateQueries({ queryKey: ['resource', endpoint] });
+  };
+  const edit = (row: ResourceRow) => {
+    setEditing(row);
+    setForm(Object.fromEntries(fields.map((field) => [field.key, field.type === 'datetime-local' ? toInputDate(row[field.key]) : row[field.key] ?? (field.type === 'checkbox' ? false : '')])));
+  };
+  return (
+    <AdminCrudShell title={title}>
+      <form className="card mb-6 grid gap-3 p-4 md:grid-cols-3" onSubmit={save}>
+        {fields.map((field) => <FieldInput key={field.key} field={field} value={form[field.key]} onChange={(value) => setForm((current) => ({ ...current, [field.key]: value }))} />)}
+        <div className="flex gap-2"><button className="btn-primary"><Save className="h-4 w-4" />Enregistrer</button>{editing && <button type="button" className="btn-secondary" onClick={() => { setEditing(null); setForm(emptyForm(fields)); }}>Annuler</button>}</div>
+      </form>
+      <DataTable rows={query.data?.results || []} fields={fields.slice(0, 5)} onEdit={edit} onDelete={(row) => api.delete(`${endpoint}${row.id}/`).then(() => qc.invalidateQueries({ queryKey: ['resource', endpoint] }))} />
+    </AdminCrudShell>
+  );
+}
+
+function FieldInput({ field, value, onChange }: { field: ResourceField; value: string | number | boolean | undefined; onChange: (value: string | number | boolean) => void }) {
+  if (field.type === 'checkbox') return <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} />{field.label}</label>;
+  if (field.type === 'select') return <label className="grid gap-1 font-semibold">{field.label}<select required={field.required} className="input" value={String(value || '')} onChange={(event) => onChange(event.target.value)}><option value="">Choisir</option>{field.options?.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>;
+  return <label className="grid gap-1 font-semibold">{field.label}<input required={field.required} className="input" type={field.type || 'text'} step={field.type === 'number' ? '0.01' : undefined} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)} /></label>;
+}
+
+function normalizeField(field: ResourceField, value: string | number | boolean | undefined) {
+  if (field.type === 'number') return value === '' || value === undefined ? null : value;
+  if (field.type === 'datetime-local') return value ? new Date(String(value)).toISOString() : null;
+  return value;
+}
+
+function toInputDate(value: unknown) {
+  if (!value) return '';
+  return new Date(String(value)).toISOString().slice(0, 16);
+}
+
+function DataTable({ rows, fields, onEdit, onDelete }: { rows: ResourceRow[]; fields: ResourceField[]; onEdit?: (row: ResourceRow) => void; onDelete?: (row: ResourceRow) => void }) {
+  return <div className="card overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr>{fields.map((field) => <th key={field.key} className="p-3">{field.label}</th>)}<th className="p-3">Actions</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-t">{fields.map((field) => <td key={field.key} className="p-3">{formatCell(row[field.key])}</td>)}<td className="flex gap-2 p-3">{onEdit && <button className="btn-secondary" onClick={() => onEdit(row)}><Edit className="h-4 w-4" /></button>}{onDelete && <button className="btn-secondary text-coral" onClick={() => onDelete(row)}><Trash2 className="h-4 w-4" /></button>}</td></tr>)}</tbody></table></div>;
+}
+
+function formatCell(value: unknown) {
+  if (typeof value === 'boolean') return value ? 'Oui' : 'Non';
+  if (typeof value === 'string' && value.includes('T')) return new Date(value).toLocaleString('fr-MA');
+  return String(value ?? '');
+}
+
+function InventoryAdmin() {
+  const rows = useQuery({ queryKey: ['inventory'], queryFn: async () => (await api.get<{ count: number; results: ResourceRow[] }>('/developer/inventory/')).data });
+  return <AdminCrudShell title="Inventaire"><DataTable rows={rows.data?.results || []} fields={[{ key: 'product', label: 'Produit' }, { key: 'sku', label: 'SKU' }, { key: 'quantity', label: 'Stock' }, { key: 'reserved_quantity', label: 'Reserve' }, { key: 'is_low_stock', label: 'Stock bas' }]} /></AdminCrudShell>;
+}
+
+function CustomersAdmin() {
+  const qc = useQueryClient();
+  const customers = useQuery({ queryKey: ['customers'], queryFn: async () => (await api.get<Paginated<ResourceRow>>('/admin/customers/')).data });
+  const updateStatus = async (row: ResourceRow, status: string) => {
+    await api.patch(`/admin/customers/${row.id}/status/`, { status });
+    toast.success('Client mis a jour');
+    qc.invalidateQueries({ queryKey: ['customers'] });
+  };
+  return <AdminCrudShell title="Clients"><div className="card overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr><th className="p-3">Email</th><th className="p-3">Nom</th><th className="p-3">Commandes</th><th className="p-3">Depense</th><th className="p-3">Statut</th></tr></thead><tbody>{customers.data?.results.map((row) => <tr key={row.id} className="border-t"><td className="p-3">{row.email}</td><td className="p-3">{row.first_name} {row.last_name}</td><td className="p-3">{row.order_count}</td><td className="p-3">{money(Number(row.total_spent || 0))}</td><td className="p-3"><select className="input max-w-40" value={String(row.status)} onChange={(event) => updateStatus(row, event.target.value)}><option value="ACTIVE">Actif</option><option value="BLOCKED">Bloque</option><option value="PENDING">En attente</option></select></td></tr>)}</tbody></table></div></AdminCrudShell>;
+}
+
+function ModerationAdmin({ title, endpoint }: { title: string; endpoint: string }) {
+  const query = useQuery({ queryKey: ['moderation', endpoint], queryFn: async () => (await api.get<Paginated<ResourceRow>>(endpoint)).data });
+  const sample = query.data?.results[0];
+  const fields = Object.keys(sample || { id: 0, status: '', created_at: '' }).filter((key) => !['messages', 'images'].includes(key)).slice(0, 6).map((key) => ({ key, label: key.replace(/_/g, ' ') }));
+  return <AdminCrudShell title={title}><DataTable rows={query.data?.results || []} fields={fields} /></AdminCrudShell>;
+}
+
+function DesignSettingsAdmin() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ['design-settings'], queryFn: async () => (await api.get<Record<string, string>>('/settings/design/')).data });
+  const [form, setForm] = useState<Record<string, string>>({});
+  const current = { ...(data || {}), ...form };
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    await api.patch('/settings/design/', current);
+    toast.success('Design mis a jour');
+    setForm({});
+    qc.invalidateQueries({ queryKey: ['design-settings'] });
+  };
+  return <AdminCrudShell title="Parametres boutique"><form className="card grid gap-3 p-4 md:grid-cols-2" onSubmit={save}>{['store_name', 'tagline', 'announcement', 'hero_eyebrow', 'primary_color', 'accent_color', 'logo_url', 'footer_text'].map((key) => <label key={key} className="grid gap-1 font-semibold">{key.replace(/_/g, ' ')}<input className="input" type={key.includes('color') ? 'color' : 'text'} value={current[key] || ''} onChange={(event) => setForm((prev) => ({ ...prev, [key]: event.target.value }))} /></label>)}<button className="btn-primary"><Save className="h-4 w-4" />Enregistrer</button></form></AdminCrudShell>;
+}
+
+function ReportsAdmin() {
+  return <AdminCrudShell title="Rapports"><div className="grid gap-3 md:grid-cols-3"><button className="btn-secondary" onClick={() => downloadFile('/developer/export/orders/', 'dolphin-orders.csv')}><Download className="h-4 w-4" />Commandes CSV</button><button className="btn-secondary" onClick={() => downloadFile('/developer/export/products/', 'dolphin-products.csv')}><Download className="h-4 w-4" />Produits CSV</button><button className="btn-secondary" onClick={() => downloadFile('/developer/export/customers/', 'dolphin-customers.csv')}><Download className="h-4 w-4" />Clients CSV</button></div></AdminCrudShell>;
+}
+
+function AuditLogsAdmin() {
+  const logs = useQuery({ queryKey: ['audit-logs'], queryFn: async () => (await api.get<Paginated<ResourceRow>>('/developer/audit-logs/')).data });
+  return <AdminCrudShell title="Audit logs"><DataTable rows={logs.data?.results || []} fields={[{ key: 'created_at', label: 'Date' }, { key: 'actor_email', label: 'Acteur' }, { key: 'action', label: 'Action' }, { key: 'entity', label: 'Entite' }, { key: 'entity_id', label: 'ID' }]} /></AdminCrudShell>;
+}
+
 function Rows<T extends { id: number; name: string; slug: string; is_archived?: boolean; display_order?: number; parent?: number | null; description?: string }>({ rows, onEdit, onArchive, onDelete }: { rows: T[]; onEdit: (row: T) => void; onArchive?: (row: T) => void; onDelete: (row: T) => void }) {
   return <div className="card overflow-hidden"><table className="w-full text-left"><thead className="bg-mist"><tr><th className="p-3">Nom</th><th className="p-3">Slug</th><th className="p-3">Actions</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-t"><td className="p-3 font-semibold">{row.name}</td><td className="p-3">{row.slug}</td><td className="flex gap-2 p-3"><button className="btn-secondary" onClick={() => onEdit(row)}><Edit className="h-4 w-4" /></button>{onArchive && <button className="btn-secondary" onClick={() => onArchive(row)}>{row.is_archived ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}</button>}<button className="btn-secondary text-coral" onClick={() => onDelete(row)}><Trash2 className="h-4 w-4" /></button></td></tr>)}</tbody></table></div>;
 }
@@ -349,10 +564,14 @@ function AdminCrudShell({ title, children }: { title: string; children: JSX.Elem
   return <div><h1 className="mb-6 font-heading text-3xl font-bold">{title}</h1>{children}</div>;
 }
 
-function GenericAdmin({ section }: { section: string }) {
-  return <div><h1 className="mb-6 font-heading text-3xl font-bold capitalize">{section}</h1><div className="card p-6">Section connectee a l'API existante, prete pour les formulaires metier detailles.</div></div>;
+function NavigateBack() {
+  return <div><h1 className="mb-6 font-heading text-3xl font-bold">Module inconnu</h1><div className="card p-6">Cette section Admin n'existe pas.</div></div>;
 }
 
 function Metric({ icon, label, value }: { icon: JSX.Element; label: string; value: string | number }) {
   return <div className="card p-5"><div className="mb-3 text-ocean">{icon}</div><p className="text-sm text-slate-500">{label}</p><strong className="text-2xl">{value}</strong></div>;
+}
+
+function MoneyRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return <div className={`flex justify-between ${strong ? 'border-t pt-3 text-lg font-bold' : ''}`}><span>{label}</span><span>{value}</span></div>;
 }

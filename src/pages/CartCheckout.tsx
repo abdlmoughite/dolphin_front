@@ -50,7 +50,8 @@ export function CheckoutPage() {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<CheckoutForm>({ resolver: zodResolver(schema), defaultValues: { payment_method: 'COD' } });
   const submit = async (values: CheckoutForm) => {
     const zone = zones?.results.find((z) => z.id === Number(values.delivery_zone_id));
-    const { data } = await api.post<Order>('/checkout/', { ...values, shipping_city: zone?.city || '' });
+    const idempotency_key = crypto.randomUUID();
+    const { data } = await api.post<Order>('/checkout/', { ...values, idempotency_key, shipping_city: zone?.city || '' });
     toast.success('Commande creee');
     navigate(`/confirmation/${data.id}`, { state: { order: data } });
   };

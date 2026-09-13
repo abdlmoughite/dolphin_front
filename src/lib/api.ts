@@ -1,15 +1,53 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const normalizedRoot = rawBaseUrl.replace(/\/+$/, '').replace(/\/api\/v1$/, '');
+const API_BASE_URL = `${normalizedRoot}/api/v1`;
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1',
+  baseURL: API_BASE_URL,
 });
 
 const API_BASE = api.defaults.baseURL || '';
 const MEDIA_BASE = API_BASE.replace(/\/api\/v1\/?$/, '');
+let refreshPromise: Promise<string> | null = null;
+
+export const AUTH_EXPIRED_EVENT = 'dolphin-auth-expired';
+
+export function getStoredAccessToken() {
+  return localStorage.getItem('dolphin_access');
+}
+
+export function getStoredRefreshToken() {
+  return localStorage.getItem('dolphin_refresh');
+}
+
+export function setAuthTokens(access: string, refresh?: string) {
+  localStorage.setItem('dolphin_access', access);
+  if (refresh) localStorage.setItem('dolphin_refresh', refresh);
+}
+
+export function clearAuthTokens() {
+  localStorage.removeItem('dolphin_access');
+  localStorage.removeItem('dolphin_refresh');
+}
+
+function authExpired() {
+  clearAuthTokens();
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+}
+
+async function refreshAccessToken() {
+  const refresh = getStoredRefreshToken();
+  if (!refresh) throw new Error('Missing refresh token');
+  const { data } = await axios.post<{ access: string; refresh?: string }>(`${API_BASE_URL}/auth/refresh/`, { refresh });
+  setAuthTokens(data.access, data.refresh);
+  return data.access;
+}
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('dolphin_access');
+  const token = getStoredAccessToken();
   const session = localStorage.getItem('dolphin_session') || crypto.randomUUID();
   localStorage.setItem('dolphin_session', session);
   config.headers.Authorization = token ? `Bearer ${token}` : undefined;
@@ -19,9 +57,24 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const original = error.config;
+    if (error.response?.status === 401 && original && !original._retry && getStoredRefreshToken()) {
+      original._retry = true;
+      try {
+        refreshPromise ||= refreshAccessToken().finally(() => {
+          refreshPromise = null;
+        });
+        const access = await refreshPromise;
+        original.headers.Authorization = `Bearer ${access}`;
+        return api(original);
+      } catch {
+        authExpired();
+        toast.error('Session expiree. Reconnectez-vous.');
+      }
+    }
     const message = error.response?.data?.detail || 'Une erreur est survenue.';
-    if (error.response?.status !== 401) toast.error(message);
+    if (error.response?.status !== 401) toast.error(error.response?.status === 403 ? 'Acces non autorise pour ce role.' : message);
     return Promise.reject(error);
   },
 );

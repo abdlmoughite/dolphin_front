@@ -24,6 +24,7 @@ export function CatalogPage() {
     } else {
       next.delete(key);
     }
+    if (key !== 'page') next.delete('page');
     setParams(next);
   };
   const filterPanel = (
@@ -43,7 +44,7 @@ export function CatalogPage() {
       </div>
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         <aside className="card hidden p-5 lg:block">{filterPanel}</aside>
-        <div>{products.isLoading ? <LoadingGrid /> : products.data?.results.length ? <div className={`grid gap-5 ${grid ? 'sm:grid-cols-2 xl:grid-cols-3' : ''}`}>{products.data.results.map((p) => <ProductCard key={p.id} product={p} />)}</div> : <EmptyState title="Aucun produit" text="Essayez de modifier vos filtres." />}</div>
+        <div className="grid gap-5">{products.isLoading ? <LoadingGrid /> : products.data?.results.length ? <><div className={`grid gap-5 ${grid ? 'sm:grid-cols-2 xl:grid-cols-3' : ''}`}>{products.data.results.map((p) => <ProductCard key={p.id} product={p} />)}</div><Pagination count={products.data.count} page={Number(params.get('page') || 1)} onPage={(page) => set('page', String(page))} /></> : <EmptyState title="Aucun produit" text="Essayez de modifier vos filtres." />}</div>
       </div>
       {mobileFilters && <div className="fixed inset-0 z-50 bg-navy/40 p-4" onClick={() => setMobileFilters(false)}><div className="card ml-auto h-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>{filterPanel}</div></div>}
     </section>
@@ -61,6 +62,8 @@ export function ProductDetailsPage() {
   if (isLoading) return <section className="mx-auto max-w-7xl px-4 py-8"><div className="skeleton h-96" /></section>;
   if (!product) return <EmptyState title="Produit introuvable" text="Ce produit n'est plus disponible." />;
   const selectedImage = product.images?.[imageIndex]?.image || product.images?.find((image) => image.is_main)?.image;
+  const available = variant?.inventory?.available_quantity ?? variant?.inventory?.quantity ?? 0;
+  const canBuy = Boolean(variant && available > 0 && qty <= available);
   return (
     <section className="mx-auto grid max-w-7xl gap-8 px-4 py-8 lg:grid-cols-2">
       <div className="grid gap-3">
@@ -75,11 +78,23 @@ export function ProductDetailsPage() {
         <div className="flex items-center gap-2 text-amber-500"><Star className="fill-current" />{Number(product.average_rating || 0).toFixed(1)} avis verifies</div>
         <div className="flex items-end gap-3"><strong className="text-3xl text-ocean">{money(product.current_price)}</strong>{product.promotional_price && <span className="text-slate-400 line-through">{money(product.regular_price)}</span>}{product.discount_percent > 0 && <span className="badge bg-coral text-white">-{product.discount_percent}%</span>}</div>
         <p className="text-slate-700">{product.short_description}</p>
-        <div className="grid gap-2"><span className="font-bold">Variantes</span><div className="flex flex-wrap gap-2">{product.variants.map((v) => <button key={v.id} onClick={() => setVariantId(v.id)} className={`btn-secondary ${variant?.id === v.id ? 'bg-mist' : ''}`}>{v.values.map((x) => x.value).join(' / ') || v.sku}</button>)}</div></div>
-        <div className="flex items-center gap-3"><input className="input max-w-24" type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} /><button className="btn-primary" onClick={() => variant && add(variant.id, qty).then(() => toast.success('Panier mis a jour'))}><ShoppingCart className="h-4 w-4" />Ajouter au panier</button><a className="btn-secondary" href={`https://wa.me/?text=${encodeURIComponent(product.name)}`}><Share2 className="h-4 w-4" />Partager</a></div>
+        <div className="grid gap-2"><span className="font-bold">Variantes</span><div className="flex flex-wrap gap-2">{product.variants.map((v) => <button key={v.id} onClick={() => { setVariantId(v.id); setQty(1); }} className={`btn-secondary ${variant?.id === v.id ? 'bg-mist' : ''}`}>{v.values.map((x) => x.value).join(' / ') || v.sku}</button>)}</div>{variant && <span className={`text-sm font-semibold ${available > 0 ? 'text-success' : 'text-coral'}`}>{available > 0 ? `${available} en stock` : 'Rupture de stock'}</span>}</div>
+        <div className="flex flex-wrap items-center gap-3"><input className="input max-w-24" type="number" min={1} max={available || 1} value={qty} onChange={(e) => setQty(Math.max(1, Math.min(Number(e.target.value), available || 1)))} /><button className="btn-primary" disabled={!canBuy} onClick={() => variant && add(variant.id, qty).then(() => toast.success('Panier mis a jour'))}><ShoppingCart className="h-4 w-4" />Ajouter au panier</button><a className="btn-secondary" href={`https://wa.me/?text=${encodeURIComponent(product.name)}`}><Share2 className="h-4 w-4" />Partager</a></div>
         <div className="card p-5"><h2 className="font-heading text-xl font-bold">Description</h2><p className="mt-2 text-slate-700">{product.description}</p></div>
         <div className="grid gap-2 text-sm text-slate-600"><p>Livraison selon la ville choisie au checkout.</p><p>Retour possible selon la politique de retour DOLPHIN.</p></div>
       </div>
     </section>
+  );
+}
+
+function Pagination({ count, page, onPage }: { count: number; page: number; onPage: (page: number) => void }) {
+  const totalPages = Math.max(1, Math.ceil(count / 20));
+  if (totalPages <= 1) return null;
+  return (
+    <div className="flex items-center justify-center gap-2">
+      <button className="btn-secondary" disabled={page <= 1} onClick={() => onPage(page - 1)}>Precedent</button>
+      <span className="text-sm font-semibold text-slate-600">Page {page} / {totalPages}</span>
+      <button className="btn-secondary" disabled={page >= totalPages} onClick={() => onPage(page + 1)}>Suivant</button>
+    </div>
   );
 }

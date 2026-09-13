@@ -33,7 +33,9 @@ export function StoreLayout() {
             <Search className="h-5 w-5 text-ocean" /><input className="w-full bg-transparent" placeholder="Rechercher un produit" />
           </form>
           <Link to="/panier" aria-label="Panier" className="relative rounded-full p-2 hover:bg-mist"><ShoppingCart /><span className="absolute -right-1 -top-1 rounded-full bg-coral px-1.5 text-xs font-bold text-white">{cartCount}</span></Link>
+          {user?.role === 'CUSTOMER' && <Link to="/compte" aria-label="Mon compte" className="rounded-full p-2 hover:bg-mist"><User /></Link>}
           {user && user.role !== 'CUSTOMER' && <><Link className="btn-secondary hidden sm:inline-flex" to={user.role === 'SUPER_ADMIN' ? '/developer' : '/admin/dashboard'}>Admin</Link><button className="btn-secondary hidden sm:inline-flex" onClick={logout}>Sortir</button></>}
+          {!user && <Link to="/connexion" aria-label="Connexion" className="rounded-full p-2 hover:bg-mist"><User /></Link>}
         </div>
       </header>
       {open && (
@@ -63,7 +65,7 @@ function FooterBlock({ title, items }: { title: string; items: string[] }) {
 }
 
 export function AdminLayout() {
-  const links = ['dashboard', 'products', 'categories', 'brands', 'imports', 'orders', 'inventory', 'customers', 'promotions', 'settings'];
+  const links = ['dashboard', 'products', 'categories', 'brands', 'imports', 'orders', 'inventory', 'customers', 'promotions', 'coupons', 'delivery-zones', 'banners', 'reviews', 'support', 'returns', 'settings', 'reports', 'audit-logs'];
   return (
     <div className="min-h-screen bg-slate-50 md:flex">
       <aside className="bg-navy p-4 text-white md:min-h-screen md:w-64">
