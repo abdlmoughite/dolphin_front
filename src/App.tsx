@@ -8,14 +8,15 @@ import { CartPage, CheckoutPage, ConfirmationPage } from './pages/CartCheckout';
 import { CatalogPage, ProductDetailsPage } from './pages/Catalog';
 import { BrandsPage, HelpPage, HomePage, NewArrivalsPage, PromotionsPage, SimplePage } from './pages/Home';
 import { DeveloperPage } from './pages/Developer';
-import { LoginPage, RegisterPage } from './pages/Auth';
+import { LoginPage, PasswordResetPage, RegisterPage, UnauthorizedPage } from './pages/Auth';
 import { CustomerDashboard } from './pages/Customer';
 
 function Protected({ children, admin = false, developer = false }: { children: JSX.Element; admin?: boolean; developer?: boolean }) {
-  const { user } = useAuth();
+  const { user, booted } = useAuth();
+  if (!booted) return <div className="grid min-h-screen place-items-center bg-mist text-sm font-semibold text-slate-600">Chargement de la session...</div>;
   if (!user) return <Navigate to="/connexion" replace />;
-  if (developer && user.role !== 'SUPER_ADMIN') return <Navigate to="/admin/dashboard" replace />;
-  if (admin && user.role === 'CUSTOMER') return <Navigate to="/" replace />;
+  if (developer && user.role !== 'SUPER_ADMIN') return <Navigate to="/unauthorized" replace />;
+  if (admin && user.role === 'CUSTOMER') return <Navigate to="/unauthorized" replace />;
   return children;
 }
 
@@ -31,6 +32,8 @@ const router = createBrowserRouter([
       { path: '/confirmation/:id', element: <ConfirmationPage /> },
       { path: '/connexion', element: <LoginPage /> },
       { path: '/inscription', element: <RegisterPage /> },
+      { path: '/mot-de-passe-oublie', element: <PasswordResetPage /> },
+      { path: '/unauthorized', element: <UnauthorizedPage /> },
       { path: '/compte/*', element: <Protected><CustomerDashboard /></Protected> },
       { path: '/promotions', element: <PromotionsPage /> },
       { path: '/nouveautes', element: <NewArrivalsPage /> },

@@ -1,11 +1,12 @@
-import { Activity, Bell, Boxes, Check, Download, Edit, FileClock, Gauge, LayoutDashboard, Package, Save, Search, Settings, Shield, ShoppingBag, Tag, Truck, Users, X } from 'lucide-react';
+import { Activity, Bell, Check, Download, Edit, FileClock, Gauge, Info, LayoutDashboard, Package, Save, Search, Settings, Shield, ShoppingBag, Tag, Truck, Users, X } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api, downloadFile, Paginated, Product, User } from '../lib/api';
+import { api, Category, downloadFile, Paginated, Product, User } from '../lib/api';
 import { money } from '../lib/i18n';
+import { CategoriesAdmin, OrdersAdmin, ProductsAdmin } from './Admin';
 
 type DeveloperMetrics = {
   revenue_total: string;
@@ -18,8 +19,6 @@ type DeveloperMetrics = {
   average_order_value: string;
   products_total: number;
   products_active: number;
-  out_of_stock_products: number;
-  low_stock_products: number;
   customers_total: number;
   customers_new: number;
   unread_notifications: number;
@@ -29,7 +28,6 @@ type DeveloperMetrics = {
   latest_orders: { id: number; order_number: string; status: string; shipping_full_name: string; shipping_city: string; total: string; created_at: string }[];
 };
 type AuditLog = { id: number; actor_email?: string; action: string; entity: string; entity_id: string; created_at: string; ip_address?: string };
-type InventoryRow = { variant_id: number; product: string; sku: string; status: string; quantity: number; reserved_quantity: number; low_stock_threshold: number; is_low_stock: boolean };
 type OrderRow = {
   id: number;
   order_number: string;
@@ -48,14 +46,17 @@ type OrderRow = {
   items: { id: number; product_name: string; variant_label: string; sku: string; unit_price: string; quantity: number; total: string }[];
   status_history: { id: number; from_status: string; to_status: string; note: string; created_at: string }[];
 };
+type CustomerRow = Omit<User, 'id'> & { id: number | string; username?: string; date_joined?: string; last_login?: string | null; order_count?: number; total_spent?: string; source?: 'ACCOUNT' | 'GUEST' };
+type PromotionRow = { id: number; name: string; discount_type: 'PERCENT' | 'FIXED'; value: string; minimum_amount: string; starts_at: string; ends_at: string; is_active: boolean; products: number[]; categories: number[] };
+type PromotionForm = { name: string; discount_type: 'PERCENT' | 'FIXED'; value: string; minimum_amount: string; starts_at: string; ends_at: string; is_active: boolean; products: number[]; categories: number[] };
 type SystemInfo = { backend_status: string; api_status: string; database_status: string; environment: string; server_time: string; python_version: string; django_version: string; media_root_exists: boolean; counts: Record<string, number>; last_activity?: { action: string; entity: string; created_at: string } };
 
 const sections = [
   ['dashboard', 'Dashboard', LayoutDashboard],
   ['products', 'Produits', Package],
+  ['categories', 'Categories', Tag],
   ['orders', 'Commandes', ShoppingBag],
-  ['users', 'Utilisateurs', Users],
-  ['inventory', 'Stock', Boxes],
+  ['users', 'Clients', Users],
   ['promotions', 'Promotions', Tag],
   ['settings', 'Settings', Settings],
   ['logs', 'Audit logs', FileClock],
@@ -81,10 +82,10 @@ export function DeveloperPage() {
 }
 
 function DeveloperSection({ section }: { section: string }) {
-  if (section === 'products') return <DeveloperProducts />;
-  if (section === 'orders') return <DeveloperOrders />;
+  if (section === 'products') return <ProductsAdmin />;
+  if (section === 'categories') return <CategoriesAdmin />;
+  if (section === 'orders') return <OrdersAdmin />;
   if (section === 'users') return <DeveloperUsers />;
-  if (section === 'inventory') return <DeveloperInventory />;
   if (section === 'promotions') return <DeveloperPromotions />;
   if (section === 'settings') return <DeveloperSettings />;
   if (section === 'logs') return <DeveloperLogs />;
@@ -103,7 +104,6 @@ function DeveloperDashboard() {
         <Stat label="Ventes totales" value={money(data?.revenue_total || 0)} icon={<Gauge />} />
         <Stat label="Ventes aujourd'hui" value={money(data?.revenue_today || 0)} icon={<Activity />} />
         <Stat label="Commandes" value={data?.total_orders || 0} icon={<ShoppingBag />} />
-        <Stat label="Stock bas" value={data?.low_stock_products || 0} icon={<Boxes />} />
         <Stat label="Produits actifs" value={data?.products_active || 0} icon={<Package />} />
         <Stat label="Clients" value={data?.customers_total || 0} icon={<Users />} />
         <Stat label="Annulees" value={data?.cancelled_orders || 0} icon={<Tag />} />
@@ -227,28 +227,176 @@ function CancelOrderModal({ order, onClose, onConfirm }: { order: OrderRow; onCl
 }
 
 function DeveloperUsers() {
-  const qc = useQueryClient();
-  const users = useQuery({ queryKey: ['developer-users'], queryFn: async () => (await api.get<Paginated<User>>('/admin/staff/?ordering=-date_joined')).data });
-  const update = async (id: number, patch: Partial<User>) => {
-    await api.patch(`/admin/staff/${id}/`, patch);
-    toast.success('Utilisateur mis a jour');
-    qc.invalidateQueries({ queryKey: ['developer-users'] });
-  };
+  const [selected, setSelected] = useState<CustomerRow | null>(null);
+  const [search, setSearch] = useState('');
+  const [source, setSource] = useState('');
+  const [status, setStatus] = useState('');
+  const [minOrders, setMinOrders] = useState('');
+  const params = new URLSearchParams({ ordering: '-date_joined' });
+  if (search) params.set('search', search);
+  if (source) params.set('source', source);
+  if (status) params.set('status', status);
+  if (minOrders) params.set('min_orders', minOrders);
+  const users = useQuery({ queryKey: ['developer-customers', search, source, status, minOrders], queryFn: async () => (await api.get<Paginated<CustomerRow>>(`/admin/customers/?${params}`)).data });
   return (
-    <ResourcePage title="Utilisateurs" exportKind="customers">
-      <div className="card overflow-hidden"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr><th className="p-3">Email</th><th className="p-3">Nom</th><th className="p-3">Role</th><th className="p-3">Statut</th><th className="p-3">Actions</th></tr></thead><tbody>{users.data?.results.map((user) => <tr key={user.id} className="border-t"><td className="p-3">{user.email}</td><td className="p-3">{user.first_name} {user.last_name}</td><td className="p-3">{user.role}</td><td className="p-3">{user.status}</td><td className="flex gap-2 p-3"><select className="input" value={user.role} onChange={(e) => update(user.id, { role: e.target.value })}><option value="CUSTOMER">CUSTOMER</option><option value="MANAGER">MANAGER</option><option value="ORDER_OPERATOR">ORDER_OPERATOR</option><option value="CUSTOMER_SUPPORT">CUSTOMER_SUPPORT</option><option value="SUPER_ADMIN">SUPER_ADMIN</option></select><button className="btn-secondary" onClick={() => update(user.id, { status: user.status === 'ACTIVE' ? 'BLOCKED' : 'ACTIVE' })}>{user.status === 'ACTIVE' ? 'Bloquer' : 'Activer'}</button></td></tr>)}</tbody></table></div>
+    <ResourcePage title="Clients" exportKind="customers">
+      <div className="card overflow-hidden">
+        <div className="flex flex-wrap gap-3 border-b p-4"><input className="input max-w-sm" placeholder="Rechercher client, telephone, email" value={search} onChange={(e) => setSearch(e.target.value)} /><select className="input max-w-44" value={source} onChange={(e) => setSource(e.target.value)}><option value="">Tous clients</option><option value="ACCOUNT">Avec compte</option><option value="GUEST">Guest checkout</option></select><select className="input max-w-44" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Tous statuts</option><option value="ACTIVE">Actif</option><option value="PENDING">En attente</option><option value="BLOCKED">Bloque</option><option value="GUEST">Guest</option></select><input className="input w-40" type="number" min={0} placeholder="Min commandes" value={minOrders} onChange={(e) => setMinOrders(e.target.value)} /><button className="btn-secondary" onClick={() => { setSearch(''); setSource(''); setStatus(''); setMinOrders(''); }}>Reinitialiser</button></div>
+        <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr><th className="p-3">Client</th><th className="p-3">Telephone</th><th className="p-3">Source</th><th className="p-3">Commandes</th><th className="p-3">Total depense</th><th className="p-3">Statut</th><th className="p-3">Inscription</th><th className="p-3">Actions</th></tr></thead><tbody>{users.data?.results.map((user) => <tr key={user.id} className="border-t"><td className="p-3"><strong>{`${user.first_name || ''} ${user.last_name || ''}`.trim() || '-'}</strong><p className="text-xs text-slate-500">{user.email}</p></td><td className="p-3">{user.phone || '-'}</td><td className="p-3"><span className={`badge ${user.source === 'GUEST' ? 'bg-amber-100 text-amber-800' : 'bg-ocean/10 text-ocean'}`}>{user.source === 'GUEST' ? 'Guest' : 'Compte'}</span></td><td className="p-3 font-semibold">{user.order_count || 0}</td><td className="p-3 font-semibold">{money(user.total_spent || 0)}</td><td className="p-3"><span className={`badge ${user.status === 'ACTIVE' ? 'bg-ocean/10 text-ocean' : user.status === 'GUEST' ? 'bg-amber-100 text-amber-800' : 'bg-coral text-white'}`}>{user.status}</span></td><td className="p-3">{user.date_joined ? new Date(user.date_joined).toLocaleDateString('fr-MA') : '-'}</td><td className="p-3"><button className="btn-secondary" onClick={() => setSelected(user)}><Info className="h-4 w-4" />Info</button></td></tr>)}</tbody></table></div>
+        {!users.data?.results.length && <div className="p-6 text-center text-slate-500">Aucun client.</div>}
+        {selected && <CustomerInfoModal customer={selected} onClose={() => setSelected(null)} />}
+      </div>
     </ResourcePage>
   );
 }
 
-function DeveloperInventory() {
-  const inventory = useQuery({ queryKey: ['developer-inventory'], queryFn: async () => (await api.get<{ count: number; results: InventoryRow[] }>('/developer/inventory/')).data });
-  return <ResourcePage title="Inventory"><SimpleTable rows={inventory.data?.results || []} columns={['product', 'sku', 'quantity', 'reserved_quantity', 'low_stock_threshold', 'is_low_stock']} /></ResourcePage>;
+function CustomerInfoModal({ customer, onClose }: { customer: CustomerRow; onClose: () => void }) {
+  const orders = useQuery({ queryKey: ['developer-customer-orders', customer.id], queryFn: async () => (await api.get<OrderRow[]>(`/admin/customers/${customer.id}/orders/`)).data });
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-navy/40 p-4">
+      <div className="card mx-auto grid max-w-5xl gap-5 p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-heading text-2xl font-bold">Informations client</h2>
+            <p className="text-sm text-slate-500">{customer.email}</p>
+          </div>
+          <button className="rounded-full p-2 hover:bg-mist" onClick={onClose} aria-label="Fermer"><X /></button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-4">
+          <InfoCard title="Client" rows={[`${customer.first_name || ''} ${customer.last_name || ''}`.trim() || '-', `Telephone: ${customer.phone || '-'}`, `Statut: ${customer.status}`]} />
+          <InfoCard title="Compte" rows={[`Email: ${customer.email}`, `Username: ${customer.username || '-'}`, `Inscrit: ${customer.date_joined ? new Date(customer.date_joined).toLocaleString('fr-MA') : '-'}`]} />
+          <InfoCard title="Commandes" rows={[`Nombre: ${customer.order_count || 0}`, `Total: ${money(customer.total_spent || 0)}`, `Derniere connexion: ${customer.last_login ? new Date(customer.last_login).toLocaleString('fr-MA') : '-'}`]} />
+          <InfoCard title="Resume" rows={[`Commandes affichees: ${orders.data?.length || 0}`, `Total historique: ${money(customer.total_spent || 0)}`, `Role: ${customer.role}`]} />
+        </div>
+        <div className="card overflow-hidden bg-white">
+          <h3 className="border-b p-4 font-heading text-xl font-bold">Commandes du client</h3>
+          {orders.isLoading ? <div className="p-6 text-slate-500">Chargement des commandes...</div> : orders.data?.length ? <div className="grid gap-4 p-4">{orders.data.map((order) => <div key={order.id} className="rounded-dolphin border border-slate-200 p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><strong className="text-ocean">{order.order_number}</strong><p className="text-xs text-slate-500">{new Date(order.created_at).toLocaleString('fr-MA')}</p></div><div className="flex flex-wrap items-center gap-2"><span className="badge bg-ocean/10 text-ocean">{statusLabel(order.status)}</span><strong>{money(order.total)}</strong></div></div><div className="grid gap-2 text-sm text-slate-600 md:grid-cols-3"><p><strong>Nom:</strong> {order.shipping_full_name}</p><p><strong>Tel:</strong> {order.shipping_phone}</p><p><strong>Ville:</strong> {order.shipping_city}</p><p className="md:col-span-3"><strong>Adresse:</strong> {order.shipping_address}</p>{order.customer_note && <p className="md:col-span-3"><strong>Note client:</strong> {order.customer_note}</p>}</div><div className="mt-3 grid gap-2">{order.items.map((item) => <div key={item.id} className="grid gap-2 rounded-dolphin bg-mist p-3 text-sm md:grid-cols-[1fr_auto_auto_auto]"><span><strong>{item.product_name}</strong><p className="text-xs text-slate-500">{item.variant_label || item.sku}</p></span><span>Qte {item.quantity}</span><span>{money(item.unit_price)}</span><strong>{money(item.total)}</strong></div>)}</div></div>)}</div> : <div className="p-6 text-center text-slate-500">Aucune commande pour ce client.</div>}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function DeveloperPromotions() {
-  const products = useQuery({ queryKey: ['developer-promotions'], queryFn: async () => (await api.get<Paginated<Product>>('/products/?promotion=true')).data });
-  return <ResourcePage title="Promotions"><SimpleTable rows={products.data?.results || []} columns={['name', 'sku', 'regular_price', 'current_price', 'discount_percent']} /></ResourcePage>;
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<PromotionRow | null>(null);
+  const [deleting, setDeleting] = useState<PromotionRow | null>(null);
+  const [form, setForm] = useState<PromotionForm>(() => emptyPromotionForm());
+  const promotions = useQuery({ queryKey: ['developer-promotions'], queryFn: async () => (await api.get<Paginated<PromotionRow>>('/promotions/?ordering=-created_at')).data });
+  const products = useQuery({ queryKey: ['developer-promotion-products'], queryFn: async () => (await api.get<Paginated<Product>>('/products/?status=ACTIVE&ordering=name')).data });
+  const categories = useQuery({ queryKey: ['developer-promotion-categories'], queryFn: async () => (await api.get<Paginated<Category>>('/categories/?is_active=true&ordering=name')).data });
+  const productName = (id: number) => products.data?.results.find((product) => product.id === id)?.name || `Produit #${id}`;
+  const categoryName = (id: number) => categories.data?.results.find((category) => category.id === id)?.name || `Categorie #${id}`;
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const payload = { ...form, value: form.value || '0', minimum_amount: form.minimum_amount || '0', starts_at: new Date(form.starts_at).toISOString(), ends_at: new Date(form.ends_at).toISOString() };
+    if (editing) {
+      await api.patch(`/promotions/${editing.id}/`, payload);
+    } else {
+      await api.post('/promotions/', payload);
+    }
+    toast.success('Promotion enregistree');
+    setEditing(null);
+    setForm(emptyPromotionForm());
+    qc.invalidateQueries({ queryKey: ['developer-promotions'] });
+  };
+  const edit = (promotion: PromotionRow) => {
+    setEditing(promotion);
+    setForm({
+      name: promotion.name,
+      discount_type: promotion.discount_type,
+      value: promotion.value,
+      minimum_amount: promotion.minimum_amount,
+      starts_at: toDatetimeLocal(promotion.starts_at),
+      ends_at: toDatetimeLocal(promotion.ends_at),
+      is_active: promotion.is_active,
+      products: promotion.products || [],
+      categories: promotion.categories || [],
+    });
+  };
+  const remove = async () => {
+    if (!deleting) return;
+    await api.delete(`/promotions/${deleting.id}/`);
+    toast.success('Promotion supprimee');
+    setDeleting(null);
+    qc.invalidateQueries({ queryKey: ['developer-promotions'] });
+  };
+  return (
+    <ResourcePage title="Promotions">
+      <div className="grid gap-6">
+        <form className="card grid gap-4 p-5" onSubmit={save}>
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="grid gap-1 font-semibold">Nom<input className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+            <label className="grid gap-1 font-semibold">Type<select className="input" value={form.discount_type} onChange={(e) => setForm({ ...form, discount_type: e.target.value as PromotionForm['discount_type'] })}><option value="PERCENT">Pourcentage</option><option value="FIXED">Montant fixe</option></select></label>
+            <label className="grid gap-1 font-semibold">Valeur<input className="input" required type="number" step="0.01" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></label>
+            <label className="grid gap-1 font-semibold">Minimum commande<input className="input" type="number" step="0.01" value={form.minimum_amount} onChange={(e) => setForm({ ...form, minimum_amount: e.target.value })} /></label>
+            <label className="grid gap-1 font-semibold">Debut<input className="input" required type="datetime-local" value={form.starts_at} onChange={(e) => setForm({ ...form, starts_at: e.target.value })} /></label>
+            <label className="grid gap-1 font-semibold">Fin<input className="input" required type="datetime-local" value={form.ends_at} onChange={(e) => setForm({ ...form, ends_at: e.target.value })} /></label>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <MultiSelect label="Produits concernes" values={form.products} options={(products.data?.results || []).map((product) => ({ id: product.id, label: `${product.name} - ${product.sku}` }))} onChange={(values) => setForm({ ...form, products: values })} />
+            <MultiSelect label="Categories concernees" values={form.categories} options={(categories.data?.results || []).map((category) => ({ id: category.id, label: category.name }))} onChange={(values) => setForm({ ...form, categories: values })} />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />Actif</label>
+            <button className="btn-primary"><Save className="h-4 w-4" />{editing ? 'Modifier' : 'Creer'} promotion</button>
+            {editing && <button type="button" className="btn-secondary" onClick={() => { setEditing(null); setForm(emptyPromotionForm()); }}>Annuler</button>}
+          </div>
+        </form>
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-mist"><tr><th className="p-3">Promotion</th><th className="p-3">Reduction</th><th className="p-3">Periode</th><th className="p-3">Cibles</th><th className="p-3">Statut</th><th className="p-3">Actions</th></tr></thead><tbody>{promotions.data?.results.map((promotion) => <tr key={promotion.id} className="border-t"><td className="p-3"><strong>{promotion.name}</strong><p className="text-xs text-slate-500">Minimum {money(promotion.minimum_amount || 0)}</p></td><td className="p-3 font-semibold">{promotion.discount_type === 'PERCENT' ? `${Number(promotion.value)}%` : money(promotion.value)}</td><td className="p-3"><p>{new Date(promotion.starts_at).toLocaleString('fr-MA')}</p><p className="text-xs text-slate-500">{new Date(promotion.ends_at).toLocaleString('fr-MA')}</p></td><td className="p-3"><div className="grid gap-1">{promotion.products?.length ? <span>{promotion.products.length} produit(s): {promotion.products.slice(0, 2).map(productName).join(', ')}</span> : null}{promotion.categories?.length ? <span>{promotion.categories.length} categorie(s): {promotion.categories.slice(0, 2).map(categoryName).join(', ')}</span> : null}{!promotion.products?.length && !promotion.categories?.length && <span>Toute la boutique</span>}</div></td><td className="p-3"><span className={`badge ${promotion.is_active && new Date(promotion.starts_at) <= new Date() && new Date(promotion.ends_at) >= new Date() ? 'bg-ocean/10 text-ocean' : 'bg-slate-200 text-slate-600'}`}>{promotionStatus(promotion)}</span></td><td className="flex gap-2 p-3"><button className="btn-secondary" onClick={() => edit(promotion)}><Edit className="h-4 w-4" /></button><button className="btn-secondary text-coral" onClick={() => setDeleting(promotion)}><X className="h-4 w-4" /></button></td></tr>)}</tbody></table></div>
+          {!promotions.data?.results.length && <div className="p-6 text-center text-slate-500">Aucune promotion.</div>}
+        </div>
+        {deleting && <ConfirmMini title="Supprimer promotion ?" text={deleting.name} onCancel={() => setDeleting(null)} onConfirm={remove} />}
+      </div>
+    </ResourcePage>
+  );
+}
+
+function emptyPromotionForm(): PromotionForm {
+  const now = new Date();
+  const end = new Date(now);
+  end.setDate(end.getDate() + 7);
+  return { name: '', discount_type: 'PERCENT', value: '', minimum_amount: '0', starts_at: toDatetimeLocal(now.toISOString()), ends_at: toDatetimeLocal(end.toISOString()), is_active: true, products: [], categories: [] };
+}
+
+function toDatetimeLocal(value: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function promotionStatus(promotion: PromotionRow) {
+  const now = new Date();
+  if (!promotion.is_active) return 'Inactive';
+  if (new Date(promotion.starts_at) > now) return 'Planifiee';
+  if (new Date(promotion.ends_at) < now) return 'Expiree';
+  return 'Active';
+}
+
+function MultiSelect({ label, values, options, onChange }: { label: string; values: number[]; options: { id: number; label: string }[]; onChange: (values: number[]) => void }) {
+  return (
+    <label className="grid gap-1 font-semibold">
+      {label}
+      <select className="input min-h-32" multiple value={values.map(String)} onChange={(event) => onChange(Array.from(event.currentTarget.selectedOptions).map((option) => Number(option.value)))}>
+        {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+      </select>
+      <span className="text-xs font-normal text-slate-500">Ctrl/Cmd + clic pour choisir plusieurs elements.</span>
+    </label>
+  );
+}
+
+function ConfirmMini({ title, text, onCancel, onConfirm }: { title: string; text: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-navy/40 p-4">
+      <div className="card grid w-full max-w-md gap-4 p-6">
+        <h2 className="font-heading text-2xl font-bold">{title}</h2>
+        <p className="text-slate-600">{text}</p>
+        <div className="flex justify-end gap-3"><button className="btn-secondary" onClick={onCancel}>Annuler</button><button className="btn-danger" onClick={onConfirm}>Supprimer</button></div>
+      </div>
+    </div>
+  );
 }
 
 function DeveloperSettings() {

@@ -1,7 +1,8 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
-const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env || {};
+const rawBaseUrl = viteEnv.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 const normalizedRoot = rawBaseUrl.replace(/\/+$/, '').replace(/\/api\/v1$/, '');
 const API_BASE_URL = `${normalizedRoot}/api/v1`;
 
@@ -36,6 +37,21 @@ export function clearAuthTokens() {
 function authExpired() {
   clearAuthTokens();
   window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+}
+
+export function apiErrorMessage(data: unknown) {
+  if (!data || typeof data !== 'object') return 'Une erreur est survenue.';
+  const payload = data as Record<string, unknown>;
+  const first = payload.detail || payload.product_id || payload.variant_id || payload.quantity || payload.non_field_errors || Object.values(payload)[0];
+  if (Array.isArray(first)) return String(first[0] || 'Une erreur est survenue.');
+  if (typeof first === 'string') return first;
+  if (first && typeof first === 'object') return apiErrorMessage(first);
+  return 'Une erreur est survenue.';
+}
+
+export function readApiError(error: unknown) {
+  const response = (error as { response?: { data?: unknown } }).response;
+  return apiErrorMessage(response?.data);
 }
 
 async function refreshAccessToken() {
@@ -73,7 +89,7 @@ api.interceptors.response.use(
         toast.error('Session expiree. Reconnectez-vous.');
       }
     }
-    const message = error.response?.data?.detail || 'Une erreur est survenue.';
+    const message = apiErrorMessage(error.response?.data);
     if (error.response?.status !== 401) toast.error(error.response?.status === 403 ? 'Acces non autorise pour ce role.' : message);
     return Promise.reject(error);
   },
@@ -81,9 +97,9 @@ api.interceptors.response.use(
 
 export type Paginated<T> = { count: number; results: T[] };
 export type User = { id: number; email: string; first_name: string; last_name: string; role: string; status: string; phone?: string };
-export type Category = { id: number; name: string; slug: string; description: string; image?: string | null; product_count?: number; parent?: number | null; display_order?: number; is_archived?: boolean };
+export type Category = { id: number; name: string; slug: string; description: string; image?: string | null; product_count?: number; parent?: number | null; display_order?: number; is_active?: boolean; is_archived?: boolean };
 export type Brand = { id: number; name: string; slug: string; logo?: string | null };
-export type Variant = { id: number; sku: string; price: string; price_override?: string | null; inventory?: { quantity: number; available_quantity: number }; values: { id: number; value: string; color_hex?: string }[] };
+export type Variant = { id: number; sku: string; price: string; price_override?: string | null; values: { id: number; value: string; color_hex?: string }[] };
 export type Product = {
   id: number;
   name: string;
@@ -93,7 +109,6 @@ export type Product = {
   description: string;
   regular_price: string;
   promotional_price?: string | null;
-  low_stock_threshold: number;
   current_price: string;
   discount_percent: number;
   status: string;
@@ -106,10 +121,13 @@ export type Product = {
   variants: Variant[];
   images?: { id: number; image?: string; alt_text: string; is_main: boolean; display_order: number }[];
   average_rating?: number;
+  created_at?: string;
 };
-export type CartItem = { id: number; variant: Variant & { product?: Product }; quantity: number; line_total: string };
+export type CartItem = { id: number; product?: Product; variant?: Variant & { product?: Product }; product_name?: string; product_slug?: string; quantity: number; line_total: string };
 export type Cart = { id: number; items: CartItem[]; subtotal: string; discount_total: string; total: string };
-export type Order = { id: number; order_number: string; status: string; total: string; created_at: string; items: unknown[]; status_history: { to_status: string; created_at: string; note: string }[] };
+export type OrderItem = { id: number; product: number; variant: number; product_name: string; variant_label: string; sku: string; unit_price: string; quantity: number; total: string };
+export type Order = { id: number; order_number: string; status: string; total: string; subtotal?: string; discount_total?: string; shipping_total?: string; payment_method?: string; shipping_full_name?: string; shipping_phone?: string; shipping_address?: string; shipping_city?: string; created_at: string; items: OrderItem[]; status_history: { to_status: string; created_at: string; note: string }[] };
+export type ReturnRequest = { id: number; order: number; reason: string; status: string; admin_decision?: string; created_at: string; items: { id: number; order_item: number; product_name: string; sku: string; ordered_quantity: number; quantity: number }[]; history: { id: number; from_status: string; to_status: string; note: string; actor_email?: string; created_at: string }[] };
 export type HomepageBanner = { id: number; title: string; subtitle: string; image?: string | null; cta_label: string; cta_url: string };
 
 export function mediaUrl(path?: string | null) {
