@@ -1,4 +1,4 @@
-import { CheckCircle, CreditCard, MapPin, Minus, PackageCheck, Plus, Ticket, Trash2, UserRound } from 'lucide-react';
+import { CheckCircle, CreditCard, Download, MapPin, Minus, PackageCheck, Plus, Ticket, Trash2, UserRound } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { api, mediaUrl, Order, Paginated } from '../lib/api';
+import { api, downloadFile, mediaUrl, Order, Paginated, readApiError } from '../lib/api';
 import { money } from '../lib/i18n';
 import { useCart } from '../stores/cart';
 import { EmptyState, PageHeader, StatCard } from '../components/ui';
@@ -109,13 +109,12 @@ export function CheckoutFormPanel({ onSubmitted }: { onSubmitted?: () => void })
   const navigate = useNavigate();
   const { cart, load, setCheckoutOpen } = useCart();
   const [failed, setFailed] = useState('');
-  const { data: zones } = useQuery({ queryKey: ['zones'], queryFn: async () => (await api.get<Paginated<{ id: number; city: string }>>('/delivery-zones/')).data });
+  const { data: zones } = useQuery({ queryKey: ['zones'], queryFn: async () => (await api.get<Paginated<{ id: number; city: string }>>('/delivery-zones/?is_active=true')).data });
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<CheckoutForm>({ resolver: zodResolver(schema), defaultValues: { payment_method: 'COD' } });
   const submit = async (values: CheckoutForm) => {
     setFailed('');
     const typedCity = values.shipping_city.trim();
-    const normalizeCity = (city: string) => city.trim().toLocaleLowerCase('fr-MA');
-    const zone = zones?.results.find((z) => normalizeCity(z.city) === normalizeCity(typedCity)) || zones?.results[0];
+    const zone = zones?.results[0];
     if (!zone) {
       setFailed('La commande n a pas pu etre creee. Aucune zone de livraison active.');
       return;
@@ -125,6 +124,7 @@ export function CheckoutFormPanel({ onSubmitted }: { onSubmitted?: () => void })
     try {
       const guestEmail = `${values.shipping_phone.replace(/\D/g, '') || 'client'}@checkout.dolphin.local`;
       const { data } = await api.post<Order>('/checkout/', { ...values, guest_email: guestEmail, delivery_zone_id: zone.id, idempotency_key, shipping_city: typedCity });
+      sessionStorage.setItem(`dolphin_invoice_key_${data.id}`, data.idempotency_key || idempotency_key);
       sessionStorage.removeItem('dolphin_checkout_key');
       toast.success('Commande creee');
       await load();
@@ -132,7 +132,7 @@ export function CheckoutFormPanel({ onSubmitted }: { onSubmitted?: () => void })
       onSubmitted?.();
       navigate(`/confirmation/${data.id}`, { state: { order: data } });
     } catch (error) {
-      setFailed('La commande n a pas pu etre creee. Verifiez la ville et les informations client.');
+      setFailed(readApiError(error));
       throw error;
     }
   };
@@ -160,7 +160,7 @@ export function CheckoutFormPanel({ onSubmitted }: { onSubmitted?: () => void })
       <div className="grid gap-4 md:grid-cols-2">
         <label className="grid gap-1.5 text-sm font-bold text-navy">
           Ville <span className="font-semibold text-slate-500" dir="rtl">المدينة</span>
-          <input className="input min-h-12" list="delivery-cities" placeholder="Ex: Casablanca" {...register('shipping_city')} />
+          <input className="input min-h-12" placeholder="Ex: Casablanca" {...register('shipping_city')} />
           {errors.shipping_city && <span className="text-sm font-semibold text-coral">{errors.shipping_city.message}</span>}
         </label>
         <label className="grid gap-1.5 text-sm font-bold text-navy">
@@ -168,7 +168,6 @@ export function CheckoutFormPanel({ onSubmitted }: { onSubmitted?: () => void })
           <select className="input min-h-12" {...register('payment_method')}><option value="COD">Paiement a la livraison / الأداء عند التسليم</option><option value="BANK_TRANSFER">Virement bancaire / تحويل بنكي</option></select>
         </label>
       </div>
-      <datalist id="delivery-cities">{zones?.results.map((z) => <option key={z.id} value={z.city} />)}</datalist>
       <label className="grid gap-1.5 text-sm font-bold text-navy">
         Note <span className="font-semibold text-slate-500" dir="rtl">ملاحظة</span>
         <textarea className="input min-h-20 resize-y" placeholder="Informations supplementaires..." {...register('customer_note')} />
@@ -182,5 +181,8 @@ export function ConfirmationPage() {
   const { id } = useParams();
   const location = useLocation();
   const order = (location.state as { order?: Order } | null)?.order;
-  return <section className="mx-auto max-w-3xl px-4 py-12"><div className="card p-8 text-center"><CheckCircle className="mx-auto mb-4 h-14 w-14 text-success" /><h1 className="font-heading text-3xl font-bold">Commande confirmee</h1><p className="mt-2 text-slate-600">Numero {order?.order_number || id}</p><p className="mt-2 text-slate-600">L'equipe DOLPHIN vous contactera pour le suivi.</p><Link className="btn-primary mt-6" to="/catalogue">Continuer mes achats</Link></div></section>;
+  const orderId = order?.id || id;
+  const invoiceKey = order?.idempotency_key || (orderId ? sessionStorage.getItem(`dolphin_invoice_key_${orderId}`) : '');
+  const invoiceFilename = `facture-${order?.order_number || orderId}.pdf`;
+  return <section className="mx-auto max-w-3xl px-4 py-12"><div className="card p-8 text-center"><CheckCircle className="mx-auto mb-4 h-14 w-14 text-success" /><h1 className="font-heading text-3xl font-bold">Commande confirmee</h1><p className="mt-2 text-slate-600">Numero {order?.order_number || id}</p><p className="mt-2 text-slate-600">L'equipe DOLPHIN vous contactera pour le suivi.</p><div className="mt-6 flex flex-wrap justify-center gap-3">{orderId && invoiceKey && <button className="btn-secondary" onClick={() => downloadFile(`/orders/${orderId}/invoice/?key=${encodeURIComponent(invoiceKey)}`, invoiceFilename)}><Download className="h-4 w-4" />Telecharger facture</button>}<Link className="btn-primary" to="/catalogue">Continuer mes achats</Link></div></div></section>;
 }

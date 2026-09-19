@@ -847,7 +847,7 @@ export function AdminOrderDetailPage() {
   if (!order.data) return <AdminCrudShell title="Commande"><div className="card p-6 text-coral">Commande introuvable.</div></AdminCrudShell>;
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><div><h1 className="font-heading text-3xl font-bold">{order.data.order_number}</h1><p className="text-sm text-slate-500">{new Date(order.data.created_at).toLocaleString('fr-MA')} - {statusLabel(order.data.status)}</p></div><div className="flex gap-2"><Link className="btn-secondary" to="/admin/orders">Retour</Link><button className="btn-primary" onClick={() => setEditing(order.data)}><Edit className="h-4 w-4" />Modifier</button></div></div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><div><h1 className="font-heading text-3xl font-bold">{order.data.order_number}</h1><p className="text-sm text-slate-500">{new Date(order.data.created_at).toLocaleString('fr-MA')} - {statusLabel(order.data.status)}</p></div><div className="flex flex-wrap gap-2"><Link className="btn-secondary" to="/admin/orders">Retour</Link><button className="btn-secondary" onClick={() => downloadFile(`/orders/${order.data.id}/invoice/`, `facture-${order.data.order_number}.pdf`)}><Download className="h-4 w-4" />Facture</button><button className="btn-primary" onClick={() => setEditing(order.data)}><Edit className="h-4 w-4" />Modifier</button></div></div>
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div className="card overflow-hidden"><h2 className="border-b p-4 font-heading text-xl font-bold">Articles</h2>{order.data.items.map((item) => <div key={item.id} className="grid gap-2 border-b p-4 text-sm md:grid-cols-[1fr_auto_auto_auto]"><span><strong>{item.product_name}</strong><p className="text-slate-500">{item.variant_label || item.sku}</p></span><span>Qte {item.quantity}</span><span>{money(item.unit_price)}</span><strong>{money(item.total)}</strong></div>)}<div className="grid gap-2 p-4 text-sm md:ml-auto md:w-80"><MoneyRow label="Sous-total" value={money(order.data.subtotal)} /><MoneyRow label="Remise" value={money(order.data.discount_total)} /><MoneyRow label="Livraison" value="Gratuite" /><MoneyRow label="Total" value={money(order.data.total)} strong /></div></div>
         <aside className="grid gap-6"><div className="card p-5"><h2 className="mb-3 font-heading text-xl font-bold">Client</h2><p className="font-semibold">{order.data.shipping_full_name}</p><p>{order.data.shipping_phone}</p><p>{order.data.guest_email}</p><p className="mt-3 text-slate-600">{order.data.shipping_address}, {order.data.shipping_city}</p></div><div className="card p-5"><h2 className="mb-3 font-heading text-xl font-bold">Timeline</h2><div className="grid gap-3">{order.data.status_history.map((event) => <div key={event.id} className="border-l-2 border-ocean pl-3"><strong>{statusLabel(event.to_status)}</strong><p className="text-xs text-slate-500">{new Date(event.created_at).toLocaleString('fr-MA')}</p>{event.note && <p className="text-sm text-slate-600">{event.note}</p>}</div>)}</div></div></aside>
@@ -916,6 +916,14 @@ function emptyForm(fields: ResourceField[]) {
   return Object.fromEntries(fields.map((field) => [field.key, field.type === 'checkbox' ? true : '']));
 }
 
+function formValue(field: ResourceField, value: ResourceRow[keyof ResourceRow]) {
+  if (field.type === 'datetime-local') return toInputDate(value);
+  if (field.type === 'checkbox') return Boolean(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) return value.join(', ');
+  return String(value ?? '');
+}
+
 function ResourceAdmin({ title, endpoint, fields }: { title: string; endpoint: string; fields: ResourceField[] }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<ResourceRow | null>(null);
@@ -940,7 +948,7 @@ function ResourceAdmin({ title, endpoint, fields }: { title: string; endpoint: s
   };
   const edit = (row: ResourceRow) => {
     setEditing(row);
-    setForm(Object.fromEntries(fields.map((field) => [field.key, field.type === 'datetime-local' ? toInputDate(row[field.key]) : row[field.key] ?? (field.type === 'checkbox' ? false : '')])));
+    setForm(Object.fromEntries(fields.map((field) => [field.key, formValue(field, row[field.key])])));
   };
   return (
     <AdminCrudShell title={title}>
