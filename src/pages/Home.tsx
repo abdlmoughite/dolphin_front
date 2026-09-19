@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { api, Brand, Category, HomepageBanner, mediaUrl, Paginated, Product } from '../lib/api';
+import { api, Brand, Category, HomepageBanner, HomeSection, mediaUrl, Paginated, Product } from '../lib/api';
 import { productQueryKeys } from '../lib/queryKeys';
 import { ProductCard } from '../components/ProductCard';
 import { EmptyState, LoadingGrid } from '../components/States';
@@ -11,10 +11,7 @@ import { ErrorState, PageHeader } from '../components/ui';
 
 export function HomePage() {
   const [email, setEmail] = useState('');
-  const featured = useQuery({ queryKey: [...productQueryKeys.home, 'featured'], queryFn: async () => (await api.get<Paginated<Product>>('/products/?status=ACTIVE&featured=true')).data });
-  const newest = useQuery({ queryKey: productQueryKeys.newest, queryFn: async () => (await api.get<Paginated<Product>>('/products/?status=ACTIVE&new_arrival=true&ordering=-created_at')).data });
-  const bestsellers = useQuery({ queryKey: [...productQueryKeys.home, 'bestsellers'], queryFn: async () => (await api.get<Paginated<Product>>('/products/?status=ACTIVE&bestseller=true&ordering=-sales_count')).data });
-  const promotions = useQuery({ queryKey: productQueryKeys.promotions, queryFn: async () => (await api.get<Paginated<Product>>('/products/?status=ACTIVE&promotion=true')).data });
+  const homeSections = useQuery({ queryKey: ['home-sections'], queryFn: async () => (await api.get<Paginated<HomeSection>>('/home-sections/?public=true')).data });
   const categories = useQuery({ queryKey: ['categories'], queryFn: async () => (await api.get<Paginated<Category>>('/categories/?is_active=true')).data });
   const banners = useQuery({ queryKey: ['banners'], queryFn: async () => (await api.get<Paginated<HomepageBanner>>('/banners/')).data });
   const banner = banners.data?.results?.[0];
@@ -46,10 +43,7 @@ export function HomePage() {
         <PageHeader title="Categories populaires" description="Accedez directement aux rayons publies depuis le backend Dolphin." />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">{categories.data?.results.slice(0, 10).map((cat) => <Link key={cat.id} to={`/catalogue?category=${cat.id}`} className="card overflow-hidden font-bold text-ocean">{cat.image && <img className="aspect-[5/3] w-full object-cover" src={mediaUrl(cat.image)} alt={cat.name} />}<div className="p-4">{cat.name}<p className="mt-1 text-sm font-normal text-slate-500">{cat.product_count || 0} produits</p></div></Link>)}</div>
       </section>
-      <ProductShelf title="Produits populaires" icon={<TrendingUp className="h-5 w-5" />} query={featured} />
-      <ProductShelf title="Nouveautes" icon={<Wand2 className="h-5 w-5" />} query={newest} />
-      <ProductShelf title="Meilleures ventes" icon={<ShieldCheck className="h-5 w-5" />} query={bestsellers} />
-      <ProductShelf title="Promotions" icon={<Tag className="h-5 w-5" />} query={promotions} />
+      {(homeSections.data?.results || []).map((section) => <ProductShelf key={section.key} section={section} isLoading={homeSections.isLoading} isError={homeSections.isError} onRetry={() => homeSections.refetch()} />)}
       <section className="bg-white px-4 py-12">
         <div className="mx-auto grid max-w-7xl gap-4 md:grid-cols-3">
           {[['Livraison gratuite', Truck], ['Paiement securise', WalletCards], ['Support verifie', ShieldCheck]].map(([label, Icon]) => <div key={String(label)} className="rounded-dolphin border border-slate-200 p-5"><Icon className="mb-3 text-ocean" /><h3 className="font-heading text-lg font-bold">{String(label)}</h3><p className="text-slate-600">Pourquoi choisir DOLPHIN: prix clairs, suivi commande et service client en francais.</p></div>)}
@@ -60,15 +54,25 @@ export function HomePage() {
   );
 }
 
-function ProductShelf({ title, icon, query }: { title: string; icon: JSX.Element; query: ReturnType<typeof useQuery<Paginated<Product>>> }) {
-  const products = query.data?.results.slice(0, 8) || [];
+function sectionIcon(key: string) {
+  if (key === 'promotions') return <Tag className="h-5 w-5" />;
+  if (key === 'new-arrivals') return <Wand2 className="h-5 w-5" />;
+  if (key === 'best-sellers') return <ShieldCheck className="h-5 w-5" />;
+  return <TrendingUp className="h-5 w-5" />;
+}
+
+function ProductShelf({ section, isLoading, isError, onRetry }: { section: HomeSection; isLoading: boolean; isError: boolean; onRetry: () => void }) {
+  const products = section.products.slice(0, 8);
   return (
     <section className="mx-auto max-w-7xl px-4 py-10">
       <div className="mb-5 flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 font-heading text-2xl font-bold">{icon}{title}</h2>
-        <Link className="btn-secondary" to={title === 'Promotions' ? '/catalogue?promotion=true' : '/catalogue'}>Voir tout</Link>
+        <div>
+          <h2 className="flex items-center gap-2 font-heading text-2xl font-bold">{sectionIcon(section.key)}{section.title}</h2>
+          {section.description && <p className="mt-1 text-sm text-slate-500">{section.description}</p>}
+        </div>
+        <Link className="btn-secondary" to={section.key === 'promotions' ? '/catalogue?promotion=true' : '/catalogue'}>Voir tout</Link>
       </div>
-      {query.isLoading ? <LoadingGrid /> : query.isError ? <ErrorState onRetry={() => query.refetch()} /> : products.length ? <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{products.map((p) => <ProductCard key={p.id} product={p} />)}</div> : <EmptyState title="Aucun produit disponible pour le moment." text="" />}
+      {isLoading ? <LoadingGrid /> : isError ? <ErrorState onRetry={onRetry} /> : products.length ? <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{products.map((p) => <ProductCard key={p.id} product={p} />)}</div> : <EmptyState title="Aucun produit disponible pour le moment." text="" />}
     </section>
   );
 }
@@ -156,7 +160,7 @@ export function HelpPage() {
         </div>
         <aside className="grid content-start gap-4">
           <div className="card p-5"><h2 className="font-heading text-xl font-bold">Contact rapide</h2><div className="mt-4 grid gap-3 text-sm text-slate-700"><a className="flex items-center gap-2 font-semibold hover:text-ocean" href="https://www.instagram.com/dolphin.officiel?stkn=MWtjbjgyam9meW9udQ==" target="_blank" rel="noreferrer"><Instagram className="h-4 w-4 text-ocean" />Instagram</a><a className="flex items-center gap-2 font-semibold hover:text-ocean" href="https://wa.me/212663336488" target="_blank" rel="noreferrer"><MessageCircle className="h-4 w-4 text-ocean" />0663336488</a><p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-ocean" />Casablanca, Maroc</p><p className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-ocean" />Lun-Sam, 9h-18h</p></div></div>
-          <div className="card p-5"><h2 className="font-heading text-xl font-bold">Actions utiles</h2><div className="mt-4 grid gap-3"><Link className="btn-primary" to="/catalogue"><Search className="h-4 w-4" />Catalogue</Link><Link className="btn-secondary" to="/checkout"><Truck className="h-4 w-4" />Checkout</Link><a className="btn-secondary" href="https://wa.me/212612345678"><MessageCircle className="h-4 w-4" />WhatsApp</a></div></div>
+          <div className="card p-5"><h2 className="font-heading text-xl font-bold">Actions utiles</h2><div className="mt-4 grid gap-3"><Link className="btn-primary" to="/catalogue"><Search className="h-4 w-4" />Catalogue</Link><Link className="btn-secondary" to="/checkout"><Truck className="h-4 w-4" />Checkout</Link><a className="btn-secondary" href="https://wa.me/212663336488"><MessageCircle className="h-4 w-4" />WhatsApp</a></div></div>
         </aside>
       </div>
     </section>

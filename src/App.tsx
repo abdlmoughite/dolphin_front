@@ -10,13 +10,15 @@ import { BrandsPage, HelpPage, HomePage, NewArrivalsPage, PromotionsPage, Simple
 import { DeveloperPage } from './pages/Developer';
 import { LoginPage, PasswordResetPage, RegisterPage, UnauthorizedPage } from './pages/Auth';
 import { CustomerDashboard } from './pages/Customer';
+import { canAccessAdminPage } from './lib/adminPermissions';
 
-function Protected({ children, admin = false, developer = false }: { children: JSX.Element; admin?: boolean; developer?: boolean }) {
+function Protected({ children, admin = false, developer = false, page }: { children: JSX.Element; admin?: boolean; developer?: boolean; page?: string }) {
   const { user, booted } = useAuth();
   if (!booted) return <div className="grid min-h-screen place-items-center bg-mist text-sm font-semibold text-slate-600">Chargement de la session...</div>;
   if (!user) return <Navigate to="/connexion" replace />;
   if (developer && user.role !== 'SUPER_ADMIN') return <Navigate to="/unauthorized" replace />;
   if (admin && user.role === 'CUSTOMER') return <Navigate to="/unauthorized" replace />;
+  if (admin && page && !canAccessAdminPage(user, page)) return <Navigate to="/unauthorized" replace />;
   return children;
 }
 
@@ -47,10 +49,10 @@ const router = createBrowserRouter([
     element: <Protected admin><AdminLayout /></Protected>,
     children: [
       { index: true, element: <Navigate to="/admin/dashboard" replace /> },
-      { path: 'dashboard', element: <AdminDashboard /> },
-      { path: 'orders/:id', element: <AdminOrderDetailPage /> },
-      { path: 'products/new', element: <AdminProductNewPage /> },
-      { path: 'products/:slug/edit', element: <AdminProductEditPage /> },
+      { path: 'dashboard', element: <Protected admin page="dashboard"><AdminDashboard /></Protected> },
+      { path: 'orders/:id', element: <Protected admin page="orders"><AdminOrderDetailPage /></Protected> },
+      { path: 'products/new', element: <Protected admin page="products"><AdminProductNewPage /></Protected> },
+      { path: 'products/:slug/edit', element: <Protected admin page="products"><AdminProductEditPage /></Protected> },
       { path: ':section', element: <AdminTablePage /> },
     ],
   },

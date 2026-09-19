@@ -1,4 +1,4 @@
-import { Filter, Grid2X2, Heart, List, Share2, ShoppingCart, Star } from 'lucide-react';
+import { Filter, Grid2X2, List, Share2, ShoppingCart } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
@@ -46,7 +46,7 @@ export function CatalogPage() {
     <section className="mx-auto max-w-7xl px-4 py-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <PageHeader eyebrow="Accueil / Catalogue" title="Catalogue DOLPHIN" description={`${products.data?.count || 0} resultats disponibles`} />
-        <div className="flex gap-2"><button className="btn-secondary lg:hidden" onClick={() => setMobileFilters(true)}><Filter className="h-4 w-4" />Filtres</button><button className="btn-secondary" onClick={() => setGrid(!grid)}>{grid ? <List /> : <Grid2X2 />}</button><select className="input max-w-48" value={params.get('ordering') || '-created_at'} onChange={(e) => set('ordering', e.target.value)}><option value="-created_at">Nouveautes</option><option value="regular_price">Prix croissant</option><option value="-regular_price">Prix decroissant</option><option value="-sales_count">Best sellers</option><option value="-average_rating">Mieux notes</option></select></div>
+        <div className="flex gap-2"><button className="btn-secondary lg:hidden" onClick={() => setMobileFilters(true)}><Filter className="h-4 w-4" />Filtres</button><button className="btn-secondary" onClick={() => setGrid(!grid)}>{grid ? <List /> : <Grid2X2 />}</button><select className="input max-w-48" value={params.get('ordering') || '-created_at'} onChange={(e) => set('ordering', e.target.value)}><option value="-created_at">Nouveautes</option><option value="regular_price">Prix croissant</option><option value="-regular_price">Prix decroissant</option><option value="-sales_count">Best sellers</option></select></div>
       </div>
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         <aside className="card hidden p-5 lg:block">{filterPanel}</aside>
@@ -64,7 +64,6 @@ export function ProductDetailsPage() {
   const [imageIndex, setImageIndex] = useState(0);
   const [adding, setAdding] = useState(false);
   const { data: product, isLoading, isError, refetch } = useQuery({ queryKey: productQueryKeys.detail(slug), queryFn: async () => (await api.get<Product>(`/products/${slug}/`)).data });
-  const reviews = useQuery({ queryKey: ['reviews', slug, product?.id], enabled: Boolean(product?.id), queryFn: async () => (await api.get<Paginated<{ id: number; rating: number; comment: string; user_name: string; created_at: string }>>(`/reviews/?product=${product?.id}&status=APPROVED`)).data });
   const similar = useQuery({ queryKey: productQueryKeys.similar(product?.category?.id), enabled: Boolean(product?.category?.id), queryFn: async () => (await api.get<Paginated<Product>>(`/products/?status=ACTIVE&category=${product?.category.id}`)).data });
   const add = useCart((s) => s.add);
   const setCheckoutOpen = useCart((s) => s.setCheckoutOpen);
@@ -75,10 +74,6 @@ export function ProductDetailsPage() {
   if (!product) return <EmptyState title="Produit introuvable" text="Ce produit n'est plus disponible." />;
   const selectedImage = galleryImages[imageIndex]?.image;
   const canBuy = product.status === 'ACTIVE' && product.category?.is_active !== false && !product.category?.is_archived && Boolean(variant?.id || product.id);
-  const addWishlist = async () => {
-    await api.post('/wishlist/', { product_id: product.id });
-    toast.success('Favori ajoute');
-  };
   return (
     <section className="mx-auto grid max-w-7xl gap-8 px-4 py-8 lg:grid-cols-2">
       <div className="grid gap-3">
@@ -90,13 +85,12 @@ export function ProductDetailsPage() {
       <div className="grid content-start gap-5">
         <p className="text-sm text-slate-500">Accueil / {product.category?.name}</p>
         <h1 className="font-heading text-4xl font-bold">{product.name}</h1>
-        <div className="flex flex-wrap items-center gap-3"><div className="flex items-center gap-2 text-amber-500"><Star className="fill-current" />{Number(product.average_rating || 0).toFixed(1)} avis verifies</div><StatusBadge status={product.status} /><span className="text-sm font-semibold text-slate-500">SKU {product.sku}</span></div>
+        <div className="flex flex-wrap items-center gap-3"><StatusBadge status={product.status} /><span className="text-sm font-semibold text-slate-500">SKU {product.sku}</span></div>
         <div className="flex items-end gap-3"><strong className="text-3xl text-ocean">{money(product.current_price)}</strong>{product.promotional_price && <span className="text-slate-400 line-through">{money(product.regular_price)}</span>}{product.discount_percent > 0 && <span className="badge bg-coral text-white">-{product.discount_percent}%</span>}</div>
         <p className="text-slate-700">{product.short_description}</p>
         <div className="grid gap-2"><span className="font-bold">Variantes</span><div className="flex flex-wrap gap-2">{product.variants.length ? product.variants.map((v) => <button key={v.id} onClick={() => { setVariantId(v.id); setQty(1); }} className={`btn-secondary ${variant?.id === v.id ? 'bg-mist' : ''}`}>{v.values.map((x) => x.value).join(' / ') || v.sku}</button>) : <span className="text-sm font-semibold text-slate-500">Aucune variante</span>}</div></div>
-        <div className="flex flex-wrap items-center gap-3"><input className="input max-w-24" type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))} /><button className="btn-primary" disabled={!canBuy || adding} onClick={async () => { if (!canBuy) { toast.error('Produit indisponible'); return; } setAdding(true); try { await add(variant?.id ? { variantId: variant.id, productId: product.id } : { productId: product.id }, qty); toast.success('Panier mis a jour'); setCheckoutOpen(true); } catch { /* Toast handled by API interceptor. */ } finally { setAdding(false); } }}><ShoppingCart className="h-4 w-4" />{canBuy ? 'Ajouter au panier' : 'Produit indisponible'}</button><button className="btn-secondary" onClick={addWishlist}><Heart className="h-4 w-4" />Wishlist</button><a className="btn-secondary" href={`https://wa.me/?text=${encodeURIComponent(product.name)}`}><Share2 className="h-4 w-4" />Partager</a></div>
+        <div className="flex flex-wrap items-center gap-3"><input className="input max-w-24" type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))} /><button className="btn-primary" disabled={!canBuy || adding} onClick={async () => { if (!canBuy) { toast.error('Produit indisponible'); return; } setAdding(true); try { await add(variant?.id ? { variantId: variant.id, productId: product.id } : { productId: product.id }, qty); toast.success('Panier mis a jour'); setCheckoutOpen(true); } catch { /* Toast handled by API interceptor. */ } finally { setAdding(false); } }}><ShoppingCart className="h-4 w-4" />{canBuy ? 'Ajouter au panier' : 'Produit indisponible'}</button><a className="btn-secondary" href={`https://wa.me/?text=${encodeURIComponent(product.name)}`}><Share2 className="h-4 w-4" />Partager</a></div>
         <div className="card p-5"><h2 className="font-heading text-xl font-bold">Description</h2><p className="mt-2 text-slate-700">{product.description}</p></div>
-        <div className="card p-5"><h2 className="font-heading text-xl font-bold">Avis clients</h2><div className="mt-3 grid gap-3">{reviews.data?.results.length ? reviews.data.results.map((review) => <div key={review.id} className="rounded-dolphin bg-mist p-3"><div className="font-bold text-amber-500">{review.rating}/5</div><p className="text-sm text-slate-700">{review.comment || 'Avis sans commentaire.'}</p><p className="text-xs text-slate-500">{review.user_name || 'Client Dolphin'}</p></div>) : <p className="text-sm text-slate-500">Aucun avis approuve pour ce produit.</p>}</div></div>
         <div className="grid gap-2 text-sm text-slate-600"><p>Livraison gratuite partout au Maroc.</p><p>Retour possible selon la politique de retour DOLPHIN.</p></div>
       </div>
       <div className="lg:col-span-2">{similar.data?.results.filter((item) => item.id !== product.id).length ? <section className="mt-6"><h2 className="mb-4 font-heading text-2xl font-bold">Produits similaires</h2><div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{similar.data.results.filter((item) => item.id !== product.id).slice(0, 4).map((item) => <ProductCard key={item.id} product={item} />)}</div></section> : null}</div>

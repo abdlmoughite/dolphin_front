@@ -1,8 +1,8 @@
-import { Heart, ShoppingCart, Star } from 'lucide-react';
+import { ShoppingCart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { api, mediaUrl, Product } from '../lib/api';
+import { mediaUrl, Product } from '../lib/api';
 import { money } from '../lib/i18n';
 import { useCart } from '../stores/cart';
 
@@ -13,10 +13,6 @@ export function ProductCard({ product }: { product: Product }) {
   const variant = product.variants?.[0];
   const canAdd = product.status === 'ACTIVE' && product.category?.is_active !== false && !product.category?.is_archived && Boolean(variant?.id || product.id);
   const mainImage = product.images?.find((image) => image.is_main)?.image || product.images?.[0]?.image;
-  const addWishlist = async () => {
-    await api.post('/wishlist/', { product_id: product.id });
-    toast.success('Favori ajoute');
-  };
   return (
     <article className="card group overflow-hidden transition hover:-translate-y-1 hover:shadow-lg">
       <Link to={`/produit/${product.slug}`} className="block">
@@ -34,9 +30,7 @@ export function ProductCard({ product }: { product: Product }) {
             <Link to={`/produit/${product.slug}`} className="font-bold text-navy hover:text-ocean">{product.name}</Link>
             <p className="text-sm text-slate-500">{product.brand?.name || 'DOLPHIN'}</p>
           </div>
-          <button className="rounded-full p-2 text-ocean hover:bg-mist" aria-label="Ajouter aux favoris" onClick={addWishlist}><Heart className="h-5 w-5" /></button>
         </div>
-        <div className="flex items-center gap-1 text-sm text-amber-500"><Star className="h-4 w-4 fill-current" />{Number(product.average_rating || 0).toFixed(1)}</div>
         <div className="flex items-end gap-2">
           <strong className="text-lg text-ocean">{money(product.current_price)}</strong>
           {product.promotional_price && <span className="text-sm text-slate-400 line-through">{money(product.regular_price)}</span>}

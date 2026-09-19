@@ -4,10 +4,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api, Brand, Category, downloadFile, mediaUrl, Paginated, Product } from '../lib/api';
+import { api, Brand, Category, downloadFile, HomeSection, mediaUrl, Paginated, Product } from '../lib/api';
 import { money } from '../lib/i18n';
 import { invalidateProductQueries, productQueryKeys } from '../lib/queryKeys';
 import { Breadcrumb, ConfirmDialog, EmptyState, ErrorState, FormField, ImageUploader, Pagination, SearchInput, SelectField, StatusBadge } from '../components/ui';
+import { adminPages, allAdminPageKeys, canAccessAdminPage } from '../lib/adminPermissions';
+import { useAuth } from '../stores/auth';
 
 type VariantForm = { id?: number; sku: string; color: string; size: string; capacity: string; price_override?: string };
 type ProductForm = {
@@ -79,6 +81,8 @@ export function AdminDashboard() {
 
 export function AdminTablePage() {
   const { section } = useParams();
+  const user = useAuth((state) => state.user);
+  if (section && !canAccessAdminPage(user, section)) return <NavigateBack />;
   if (section === 'products') return <ProductsAdmin />;
   if (section === 'categories') return <CategoriesAdmin />;
   if (section === 'brands') return <BrandsAdmin />;
@@ -90,7 +94,7 @@ export function AdminTablePage() {
   if (section === 'promotions') return <ResourceAdmin title="Promotions" endpoint="/promotions/" fields={promotionFields} />;
   if (section === 'delivery-zones') return <ResourceAdmin title="Zones de livraison" endpoint="/delivery-zones/" fields={deliveryZoneFields} />;
   if (section === 'banners') return <ResourceAdmin title="Bannieres homepage" endpoint="/banners/" fields={bannerFields} />;
-  if (section === 'reviews') return <ModerationAdmin title="Avis produits" endpoint="/reviews/" />;
+  if (section === 'home-sections') return <HomeSectionsAdmin />;
   if (section === 'support') return <ModerationAdmin title="Support client" endpoint="/support/" />;
   if (section === 'returns') return <ModerationAdmin title="Retours" endpoint="/returns/" />;
   if (section === 'suppliers') return <ResourceAdmin title="Fournisseurs" endpoint="/developer/suppliers/" fields={supplierFields} />;
@@ -608,6 +612,170 @@ function BrandsAdmin() {
   return <AdminCrudShell title="Marques"><form className="card mb-6 flex gap-3 p-4" onSubmit={save}><input required className="input max-w-sm" placeholder="Nom de marque" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><button className="btn-primary"><Save className="h-4 w-4" />Enregistrer</button></form><Rows rows={brands.data?.results || []} onEdit={(b) => setForm({ slug: b.slug, name: b.name })} onDelete={(b) => api.delete(`/brands/${b.slug}/`).then(() => qc.invalidateQueries({ queryKey: ['admin-brands-full'] }))} /></AdminCrudShell>;
 }
 
+export function HomeSectionsAdmin() {
+  const qc = useQueryClient();
+  const [newSection, setNewSection] = useState({ key: '', title: '', description: '', is_visible: true });
+  const sections = useQuery({ queryKey: ['admin-home-sections'], queryFn: async () => (await api.get<Paginated<HomeSection>>('/home-sections/')).data });
+  const products = useQuery({
+    queryKey: ['admin-home-section-products'],
+    queryFn: async () => {
+      const all: Product[] = [];
+      let page = 1;
+      let count = 0;
+      do {
+        const { data } = await api.get<Paginated<Product>>(`/products/?ordering=name&page=${page}`);
+        all.push(...data.results);
+        count = data.count;
+        page += 1;
+      } while (all.length < count);
+      return all;
+    },
+  });
+  const save = async (section: HomeSection, payload: Partial<HomeSection> & { product_ids?: number[] }) => {
+    await api.patch(`/home-sections/${section.key}/`, payload);
+    toast.success('Section homepage mise a jour');
+    qc.invalidateQueries({ queryKey: ['admin-home-sections'] });
+    qc.invalidateQueries({ queryKey: ['home-sections'] });
+  };
+  const remove = async (section: HomeSection) => {
+    if (section.products.length) {
+      toast.error('Retirez tous les produits avant de supprimer cette section.');
+      return;
+    }
+    await api.delete(`/home-sections/${section.key}/`);
+    toast.success('Section supprimee');
+    qc.invalidateQueries({ queryKey: ['admin-home-sections'] });
+    qc.invalidateQueries({ queryKey: ['home-sections'] });
+  };
+  const createSection = async (event: FormEvent) => {
+    event.preventDefault();
+    const key = (newSection.key || newSection.title).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    if (!key || !newSection.title.trim()) {
+      toast.error('Titre obligatoire');
+      return;
+    }
+    await api.post('/home-sections/', {
+      key,
+      title: newSection.title,
+      description: newSection.description,
+      is_visible: newSection.is_visible,
+      display_order: (sections.data?.count || 0) * 10 + 50,
+      product_ids: [],
+    });
+    toast.success('Section homepage creee');
+    setNewSection({ key: '', title: '', description: '', is_visible: true });
+    qc.invalidateQueries({ queryKey: ['admin-home-sections'] });
+    qc.invalidateQueries({ queryKey: ['home-sections'] });
+  };
+  return (
+    <AdminCrudShell title="Sections homepage">
+      <div className="grid gap-4">
+        <form className="card grid gap-4 p-5" onSubmit={createSection}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-heading text-xl font-bold">Creer une section</h2>
+              <p className="text-sm text-slate-500">Ajoutez une nouvelle section personnalisable pour la page d'accueil.</p>
+            </div>
+            <label className="flex items-center gap-2 rounded-dolphin bg-mist px-3 py-2 text-sm font-bold"><input type="checkbox" checked={newSection.is_visible} onChange={(event) => setNewSection({ ...newSection, is_visible: event.target.checked })} />Afficher</label>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="grid gap-1 font-semibold">Titre<input className="input" required value={newSection.title} onChange={(event) => setNewSection({ ...newSection, title: event.target.value })} placeholder="Ex: Selection Ramadan" /></label>
+            <label className="grid gap-1 font-semibold">Key<input className="input" value={newSection.key} onChange={(event) => setNewSection({ ...newSection, key: event.target.value })} placeholder="Auto depuis le titre" /></label>
+          </div>
+          <label className="grid gap-1 font-semibold">Description<textarea className="input min-h-20" value={newSection.description} onChange={(event) => setNewSection({ ...newSection, description: event.target.value })} /></label>
+          <button className="btn-primary w-fit"><Plus className="h-4 w-4" />Creer section</button>
+        </form>
+        {(sections.data?.results || []).map((section) => (
+          <HomeSectionEditor key={section.key} section={section} products={products.data || []} onSave={(payload) => save(section, payload)} onDelete={() => remove(section)} />
+        ))}
+        {!sections.data?.results.length && <EmptyState title="Aucune section" text="Les sections seront creees par la migration HomeSection." />}
+      </div>
+    </AdminCrudShell>
+  );
+}
+
+function HomeSectionEditor({ section, products, onSave, onDelete }: { section: HomeSection; products: Product[]; onSave: (payload: Partial<HomeSection> & { product_ids?: number[] }) => Promise<void>; onDelete: () => Promise<void> }) {
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [form, setForm] = useState({
+    title: section.title,
+    description: section.description || '',
+    is_visible: section.is_visible,
+    display_order: section.display_order,
+    product_ids: section.products.map((product) => product.id),
+  });
+  useEffect(() => {
+    setForm({
+      title: section.title,
+      description: section.description || '',
+      is_visible: section.is_visible,
+      display_order: section.display_order,
+      product_ids: section.products.map((product) => product.id),
+    });
+  }, [section]);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    await onSave(form);
+  };
+  const selectedProducts = form.product_ids.map((id) => products.find((product) => product.id === id) || section.products.find((product) => product.id === id)).filter(Boolean) as Product[];
+  const availableProducts = products.filter((product) => !form.product_ids.includes(product.id));
+  const addProduct = () => {
+    const id = Number(selectedProductId);
+    if (!id || form.product_ids.includes(id)) return;
+    setForm({ ...form, product_ids: [...form.product_ids, id] });
+    setSelectedProductId('');
+  };
+  const removeProduct = (id: number) => setForm({ ...form, product_ids: form.product_ids.filter((productId) => productId !== id) });
+  return (
+    <form className="card grid gap-4 p-5" onSubmit={submit}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase text-ocean">{section.key}</p>
+          <h2 className="font-heading text-xl font-bold">{section.title}</h2>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 rounded-dolphin bg-mist px-3 py-2 text-sm font-bold"><input type="checkbox" checked={form.is_visible} onChange={(event) => setForm({ ...form, is_visible: event.target.checked })} />Afficher</label>
+          <button type="button" className="btn-secondary text-coral" disabled={selectedProducts.length > 0} onClick={onDelete}><Trash2 className="h-4 w-4" />Supprimer</button>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-[1fr_120px]">
+        <label className="grid gap-1 font-semibold">Titre<input className="input" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+        <label className="grid gap-1 font-semibold">Ordre<input className="input" type="number" value={form.display_order} onChange={(event) => setForm({ ...form, display_order: Number(event.target.value) })} /></label>
+      </div>
+      <label className="grid gap-1 font-semibold">Description<textarea className="input min-h-20" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+      <div className="grid gap-3">
+        <label className="grid gap-1 font-semibold">
+          Ajouter un produit
+          <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+            <select className="input" value={selectedProductId} onChange={(event) => setSelectedProductId(event.target.value)}>
+              <option value="">Choisir un produit</option>
+              {availableProducts.map((product) => <option key={product.id} value={product.id}>{product.name} - {product.sku} ({product.status})</option>)}
+            </select>
+            <button type="button" className="btn-secondary" onClick={addProduct}><Plus className="h-4 w-4" />Ajouter</button>
+          </div>
+        </label>
+        <div className="rounded-dolphin border border-slate-200">
+          <div className="flex items-center justify-between border-b bg-mist px-3 py-2">
+            <strong>Produits selectionnes</strong>
+            <span className="text-sm text-slate-500">{selectedProducts.length} produit(s)</span>
+          </div>
+          <div className="grid gap-2 p-3">
+            {selectedProducts.map((product) => (
+              <div key={product.id} className="grid gap-2 rounded-dolphin border bg-white p-3 text-sm md:grid-cols-[1fr_auto_auto] md:items-center">
+                <span><strong>{product.name}</strong><p className="text-xs text-slate-500">{product.sku} - {product.status}</p></span>
+                <span className="font-semibold">{money(product.current_price || product.regular_price || 0)}</span>
+                <button type="button" className="btn-secondary text-coral" onClick={() => removeProduct(product.id)}><X className="h-4 w-4" />Retirer</button>
+              </div>
+            ))}
+            {!selectedProducts.length && <p className="rounded-dolphin bg-white p-3 text-sm text-slate-500">Aucun produit choisi pour cette section.</p>}
+          </div>
+        </div>
+        <span className="text-xs text-slate-500">Cote client, seuls les produits actifs seront visibles.</span>
+      </div>
+      <button className="btn-primary w-fit"><Save className="h-4 w-4" />Enregistrer</button>
+    </form>
+  );
+}
+
 function ProductImportAdmin() {
   const qc = useQueryClient();
   const [job, setJob] = useState<ImportJob | null>(null);
@@ -690,7 +858,7 @@ export function AdminOrderDetailPage() {
 }
 
 type ResourceField = { key: string; label: string; type?: 'text' | 'number' | 'date' | 'datetime-local' | 'checkbox' | 'select'; options?: string[]; required?: boolean };
-type ResourceRow = Record<string, string | number | boolean | null | undefined> & { id: number };
+type ResourceRow = Record<string, string | number | boolean | string[] | null | undefined> & { id: number };
 
 const couponFields: ResourceField[] = [
   { key: 'code', label: 'Code', required: true },
@@ -851,19 +1019,58 @@ function CustomersAdmin() {
   return <AdminCrudShell title="Clients"><div className="card overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr><th className="p-3">Email</th><th className="p-3">Nom</th><th className="p-3">Commandes</th><th className="p-3">Depense</th><th className="p-3">Statut</th></tr></thead><tbody>{customers.data?.results.map((row) => <tr key={row.id} className="border-t"><td className="p-3">{row.email}</td><td className="p-3">{row.first_name} {row.last_name}</td><td className="p-3">{row.order_count}</td><td className="p-3">{money(Number(row.total_spent || 0))}</td><td className="p-3"><select className="input max-w-40" value={String(row.status)} onChange={(event) => updateStatus(row, event.target.value)}><option value="ACTIVE">Actif</option><option value="BLOCKED">Bloque</option><option value="PENDING">En attente</option></select></td></tr>)}</tbody></table></div></AdminCrudShell>;
 }
 
-function StaffAdmin() {
+export function StaffAdmin() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [deleting, setDeleting] = useState<ResourceRow | null>(null);
+  const [createForm, setCreateForm] = useState({ email: '', username: '', first_name: '', last_name: '', password: '', role: 'MANAGER', status: 'ACTIVE', page_permissions: ['dashboard'] as string[] });
   const staff = useQuery({ queryKey: ['staff', search, page], queryFn: async () => (await api.get<Paginated<ResourceRow>>(endpointWithParams('/admin/staff/', { search, page: String(page) }))).data });
-  const update = async (row: ResourceRow, patch: Record<string, string | boolean>) => {
+  const update = async (row: ResourceRow, patch: Record<string, string | boolean | string[]>) => {
     await api.patch(`/admin/staff/${row.id}/`, patch);
     toast.success('Staff mis a jour');
     qc.invalidateQueries({ queryKey: ['staff'] });
   };
+  const createStaff = async (event: FormEvent) => {
+    event.preventDefault();
+    await api.post('/admin/staff/', createForm);
+    toast.success('Compte staff cree');
+    setCreateForm({ email: '', username: '', first_name: '', last_name: '', password: '', role: 'MANAGER', status: 'ACTIVE', page_permissions: ['dashboard'] });
+    qc.invalidateQueries({ queryKey: ['staff'] });
+  };
+  const toggleCreatePermission = (pageKey: string) => {
+    if (createForm.role === 'SUPER_ADMIN') return;
+    const selected = createForm.page_permissions.includes(pageKey);
+    setCreateForm({ ...createForm, page_permissions: selected ? createForm.page_permissions.filter((item) => item !== pageKey) : [...createForm.page_permissions, pageKey] });
+  };
+  const toggleRowPermission = (row: ResourceRow, pageKey: string) => {
+    const permissions = Array.isArray(row.page_permissions) ? row.page_permissions : [];
+    const selected = permissions.includes(pageKey);
+    update(row, { page_permissions: selected ? permissions.filter((item) => item !== pageKey) : [...permissions, pageKey] });
+  };
   return (
-    <AdminCrudShell title="Staff">
+    <AdminCrudShell title="Comptes equipe">
+      <form className="card mb-6 grid gap-4 p-5" onSubmit={createStaff}>
+        <div className="grid gap-4 md:grid-cols-3">
+          <label className="grid gap-1 font-semibold">Email<input className="input" type="email" required value={createForm.email} onChange={(event) => setCreateForm({ ...createForm, email: event.target.value, username: createForm.username || event.target.value })} /></label>
+          <label className="grid gap-1 font-semibold">Prenom<input className="input" value={createForm.first_name} onChange={(event) => setCreateForm({ ...createForm, first_name: event.target.value })} /></label>
+          <label className="grid gap-1 font-semibold">Nom<input className="input" value={createForm.last_name} onChange={(event) => setCreateForm({ ...createForm, last_name: event.target.value })} /></label>
+          <label className="grid gap-1 font-semibold">Mot de passe<input className="input" type="password" required minLength={8} value={createForm.password} onChange={(event) => setCreateForm({ ...createForm, password: event.target.value })} /></label>
+          <SelectField label="Role" value={createForm.role} onChange={(event) => setCreateForm({ ...createForm, role: event.target.value, page_permissions: event.target.value === 'SUPER_ADMIN' ? allAdminPageKeys : createForm.page_permissions })}>
+            <option value="MANAGER">MANAGER</option>
+            <option value="ORDER_OPERATOR">ORDER_OPERATOR</option>
+            <option value="CUSTOMER_SUPPORT">CUSTOMER_SUPPORT</option>
+            <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+          </SelectField>
+          <SelectField label="Statut" value={createForm.status} onChange={(event) => setCreateForm({ ...createForm, status: event.target.value })}>
+            <option value="ACTIVE">ACTIVE</option>
+            <option value="BLOCKED">BLOCKED</option>
+            <option value="PENDING">PENDING</option>
+          </SelectField>
+        </div>
+        <PermissionGrid selected={createForm.role === 'SUPER_ADMIN' ? allAdminPageKeys : createForm.page_permissions} disabled={createForm.role === 'SUPER_ADMIN'} onToggle={toggleCreatePermission} />
+        <button className="btn-primary w-fit"><Plus className="h-4 w-4" />Creer compte</button>
+      </form>
       <div className="mb-4 max-w-sm"><SearchInput value={search} onChange={(value) => { setSearch(value); setPage(1); }} placeholder="Rechercher un membre staff" /></div>
       <div className="hidden md:block">
         <DataTable
@@ -873,31 +1080,49 @@ function StaffAdmin() {
           error={staff.isError}
           onRetry={() => staff.refetch()}
           onDelete={setDeleting}
-          onEdit={(row) => update(row, { is_staff: !row.is_staff })}
         />
       </div>
       <div className="mt-4 grid gap-3">
         {staff.data?.results.map((row) => (
-          <div key={row.id} className="card grid gap-3 p-4 md:grid-cols-[1fr_220px_180px_auto] md:items-center">
-            <div className="min-w-0"><strong className="break-all">{row.email}</strong><p className="text-sm text-slate-500">{row.first_name} {row.last_name}</p></div>
-            <SelectField label="Role" value={String(row.role || '')} onChange={(event) => update(row, { role: event.target.value })}>
-              <option value="MANAGER">MANAGER</option>
-              <option value="ORDER_OPERATOR">ORDER_OPERATOR</option>
-              <option value="CUSTOMER_SUPPORT">CUSTOMER_SUPPORT</option>
-              <option value="SUPER_ADMIN">SUPER_ADMIN</option>
-            </SelectField>
-            <SelectField label="Statut" value={String(row.status || '')} onChange={(event) => update(row, { status: event.target.value })}>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="BLOCKED">BLOCKED</option>
-              <option value="PENDING">PENDING</option>
-            </SelectField>
-            <button className="btn-secondary text-coral" onClick={() => setDeleting(row)}><Trash2 className="h-4 w-4" />Supprimer</button>
+          <div key={row.id} className="card grid gap-4 p-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_220px_180px_auto] md:items-center">
+              <div className="min-w-0"><strong className="break-all">{row.email}</strong><p className="text-sm text-slate-500">{row.first_name} {row.last_name}</p></div>
+              <SelectField label="Role" value={String(row.role || '')} onChange={(event) => update(row, { role: event.target.value })}>
+                <option value="MANAGER">MANAGER</option>
+                <option value="ORDER_OPERATOR">ORDER_OPERATOR</option>
+                <option value="CUSTOMER_SUPPORT">CUSTOMER_SUPPORT</option>
+                <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+              </SelectField>
+              <SelectField label="Statut" value={String(row.status || '')} onChange={(event) => update(row, { status: event.target.value })}>
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="BLOCKED">BLOCKED</option>
+                <option value="PENDING">PENDING</option>
+              </SelectField>
+              <button className="btn-secondary text-coral" onClick={() => setDeleting(row)}><Trash2 className="h-4 w-4" />Supprimer</button>
+            </div>
+            <PermissionGrid selected={row.role === 'SUPER_ADMIN' ? allAdminPageKeys : Array.isArray(row.page_permissions) ? row.page_permissions : []} disabled={row.role === 'SUPER_ADMIN'} onToggle={(pageKey) => toggleRowPermission(row, pageKey)} />
           </div>
         ))}
       </div>
       {staff.data && <div className="mt-4"><Pagination count={staff.data.count} page={page} onPage={setPage} /></div>}
       {deleting && <ConfirmDialog title="Supprimer ce compte staff ?" description={`Suppression du compte ${deleting.email}. Le backend bloque la suppression du dernier SUPER_ADMIN actif et l'auto-suppression.`} confirmLabel="Supprimer" onCancel={() => setDeleting(null)} onConfirm={async () => { await api.delete(`/admin/staff/${deleting.id}/`); toast.success('Compte staff supprime'); setDeleting(null); qc.invalidateQueries({ queryKey: ['staff'] }); }} />}
     </AdminCrudShell>
+  );
+}
+
+function PermissionGrid({ selected, disabled = false, onToggle }: { selected: string[]; disabled?: boolean; onToggle: (pageKey: string) => void }) {
+  return (
+    <div className="grid gap-2 rounded-dolphin border border-slate-200 p-3">
+      <p className="text-sm font-bold text-slate-600">Permissions des pages</p>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {adminPages.map(([key, label]) => (
+          <label key={key} className="flex items-center gap-2 rounded-dolphin bg-mist px-3 py-2 text-sm font-semibold">
+            <input type="checkbox" checked={selected.includes(key)} disabled={disabled} onChange={() => onToggle(key)} />
+            {label}
+          </label>
+        ))}
+      </div>
+    </div>
   );
 }
 

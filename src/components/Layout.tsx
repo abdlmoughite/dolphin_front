@@ -1,10 +1,11 @@
-import { Bell, Instagram, LayoutDashboard, LogOut, Menu, MessageCircle, Search, ShoppingCart, User, X } from 'lucide-react';
+import { Bell, Instagram, LayoutDashboard, LogOut, Menu, MessageCircle, Search, ShoppingCart, X } from 'lucide-react';
 import { FormEvent, ReactNode, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import logo from '../assets/dolphin-logo.jpeg';
 import { CheckoutFormPanel } from '../pages/CartCheckout';
 import { useAuth } from '../stores/auth';
 import { useCart } from '../stores/cart';
+import { adminPages, canAccessAdminPage } from '../lib/adminPermissions';
 
 const nav = [
   ['Accueil', '/'],
@@ -39,9 +40,7 @@ export function StoreLayout() {
             <Search className="h-5 w-5 text-ocean" /><input className="w-full bg-transparent" placeholder="Rechercher un produit" value={search} onChange={(event) => setSearch(event.target.value)} />
           </form>
           <Link to="/panier" aria-label="Panier" className="relative rounded-full p-2 hover:bg-mist"><ShoppingCart /><span className="absolute -right-1 -top-1 rounded-full bg-coral px-1.5 text-xs font-bold text-white">{cartCount}</span></Link>
-          {user?.role === 'CUSTOMER' && <Link to="/compte" aria-label="Mon compte" className="rounded-full p-2 hover:bg-mist"><User /></Link>}
           {user && user.role !== 'CUSTOMER' && <><Link className="btn-secondary hidden sm:inline-flex" to={user.role === 'SUPER_ADMIN' ? '/developer' : '/admin/dashboard'}>Admin</Link><button className="btn-secondary hidden sm:inline-flex" onClick={logout}>Sortir</button></>}
-          {!user && <Link to="/connexion" aria-label="Connexion" className="rounded-full p-2 hover:bg-mist"><User /></Link>}
         </div>
       </header>
       {open && (
@@ -127,8 +126,7 @@ function FooterBlock({ title, items }: { title: string; items: string[] }) {
 export function AdminLayout() {
   const [open, setOpen] = useState(false);
   const { user, logout } = useAuth();
-  const links = ['dashboard', 'products', 'categories', 'brands', 'imports', 'orders', 'customers', 'promotions', 'coupons', 'delivery-zones', 'banners', 'reviews', 'support', 'returns', 'suppliers', 'expenses', 'settings', 'reports', 'audit-logs']
-    .filter((link) => user?.role === 'SUPER_ADMIN' || !['suppliers', 'expenses', 'audit-logs'].includes(link));
+  const links = adminPages.map(([key]) => key).filter((link) => canAccessAdminPage(user, link));
   const navNode = (
     <nav className="grid gap-2">{links.map((link) => <NavLink key={link} to={`/admin/${link}`} onClick={() => setOpen(false)} className={({ isActive }) => `flex items-center gap-2 rounded-dolphin px-3 py-2 text-sm font-semibold capitalize ${isActive ? 'bg-ocean text-white' : 'text-white/85 hover:bg-white/10'}`}><LayoutDashboard className="h-4 w-4" />{link.replace(/-/g, ' ')}</NavLink>)}</nav>
   );

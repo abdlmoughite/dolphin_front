@@ -96,7 +96,7 @@ api.interceptors.response.use(
 );
 
 export type Paginated<T> = { count: number; results: T[] };
-export type User = { id: number; email: string; first_name: string; last_name: string; role: string; status: string; phone?: string };
+export type User = { id: number; email: string; first_name: string; last_name: string; role: string; status: string; phone?: string; page_permissions?: string[] };
 export type Category = { id: number; name: string; slug: string; description: string; image?: string | null; product_count?: number; parent?: number | null; display_order?: number; is_active?: boolean; is_archived?: boolean };
 export type Brand = { id: number; name: string; slug: string; logo?: string | null };
 export type Variant = { id: number; sku: string; price: string; price_override?: string | null; values: { id: number; value: string; color_hex?: string }[] };
@@ -120,7 +120,6 @@ export type Product = {
   brand?: Brand;
   variants: Variant[];
   images?: { id: number; image?: string; alt_text: string; is_main: boolean; display_order: number }[];
-  average_rating?: number;
   created_at?: string;
 };
 export type CartItem = { id: number; product?: Product; variant?: Variant & { product?: Product }; product_name?: string; product_slug?: string; quantity: number; line_total: string };
@@ -129,6 +128,7 @@ export type OrderItem = { id: number; product: number; variant: number; product_
 export type Order = { id: number; order_number: string; status: string; total: string; subtotal?: string; discount_total?: string; shipping_total?: string; payment_method?: string; shipping_full_name?: string; shipping_phone?: string; shipping_address?: string; shipping_city?: string; created_at: string; items: OrderItem[]; status_history: { to_status: string; created_at: string; note: string }[] };
 export type ReturnRequest = { id: number; order: number; reason: string; status: string; admin_decision?: string; created_at: string; items: { id: number; order_item: number; product_name: string; sku: string; ordered_quantity: number; quantity: number }[]; history: { id: number; from_status: string; to_status: string; note: string; actor_email?: string; created_at: string }[] };
 export type HomepageBanner = { id: number; title: string; subtitle: string; image?: string | null; cta_label: string; cta_url: string };
+export type HomeSection = { id: number; key: string; title: string; description: string; is_visible: boolean; display_order: number; products: Product[] };
 
 export function mediaUrl(path?: string | null) {
   if (!path) return '';

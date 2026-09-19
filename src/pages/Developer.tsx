@@ -1,21 +1,32 @@
-import { Activity, Bell, Check, Download, Edit, FileClock, Gauge, Info, LayoutDashboard, Package, Save, Search, Settings, Shield, ShoppingBag, Tag, Truck, Users, X } from 'lucide-react';
+import { Activity, BarChart3, Bell, CalendarDays, Check, Download, Edit, FileClock, Gauge, Info, LayoutDashboard, MapPin, Package, Percent, RefreshCw, Save, Search, Shield, ShoppingBag, Tag, Truck, Users, X } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, Category, downloadFile, Paginated, Product, User } from '../lib/api';
 import { money } from '../lib/i18n';
-import { CategoriesAdmin, OrdersAdmin, ProductsAdmin } from './Admin';
+import { CategoriesAdmin, HomeSectionsAdmin, OrdersAdmin, ProductsAdmin, StaffAdmin } from './Admin';
 
 type DeveloperMetrics = {
   revenue_total: string;
   revenue_today: string;
   revenue_month: string;
+  filtered_revenue: string;
+  filtered_expenses: string;
+  gross_profit: string;
+  net_profit: string;
+  filtered_orders: number;
   total_orders: number;
   new_orders: number;
+  confirmed_orders: number;
+  preparing_orders: number;
+  shipped_orders: number;
+  delivered_orders: number;
   pending_orders: number;
   cancelled_orders: number;
+  returned_orders: number;
+  delivery_rate: number;
   average_order_value: string;
   products_total: number;
   products_active: number;
@@ -23,11 +34,14 @@ type DeveloperMetrics = {
   customers_new: number;
   unread_notifications: number;
   orders_by_status: Record<string, number>;
-  sales_by_day: { day: string; sales: string }[];
-  top_products: { id: number; name: string; sku: string; sales_count: number }[];
+  sales_by_day: { day: string; sales: string; orders: number }[];
+  top_products: { product_name: string; sku: string; sales_count: number; revenue: string }[];
   latest_orders: { id: number; order_number: string; status: string; shipping_full_name: string; shipping_city: string; total: string; created_at: string }[];
+  city_breakdown: { shipping_city: string; order_count: number; revenue: string }[];
+  cities: string[];
+  status_options: { value: string; label: string }[];
+  filters: { date_from: string; date_to: string; city: string; status: string; search: string };
 };
-type AuditLog = { id: number; actor_email?: string; action: string; entity: string; entity_id: string; created_at: string; ip_address?: string };
 type OrderRow = {
   id: number;
   order_number: string;
@@ -49,18 +63,54 @@ type OrderRow = {
 type CustomerRow = Omit<User, 'id'> & { id: number | string; username?: string; date_joined?: string; last_login?: string | null; order_count?: number; total_spent?: string; source?: 'ACCOUNT' | 'GUEST' };
 type PromotionRow = { id: number; name: string; discount_type: 'PERCENT' | 'FIXED'; value: string; minimum_amount: string; starts_at: string; ends_at: string; is_active: boolean; products: number[]; categories: number[] };
 type PromotionForm = { name: string; discount_type: 'PERCENT' | 'FIXED'; value: string; minimum_amount: string; starts_at: string; ends_at: string; is_active: boolean; products: number[]; categories: number[] };
-type SystemInfo = { backend_status: string; api_status: string; database_status: string; environment: string; server_time: string; python_version: string; django_version: string; media_root_exists: boolean; counts: Record<string, number>; last_activity?: { action: string; entity: string; created_at: string } };
+type DeveloperAnalytics = {
+  filters: { date_from: string; date_to: string; city: string; search: string };
+  cities: string[];
+  orders: {
+    created: number;
+    confirmed: number;
+    delivered: number;
+    cancelled: number;
+    confirmation_rate: number;
+    delivery_rate: number;
+    cancel_rate: number;
+    avg_delivery_hours: number;
+    delivered_revenue: string;
+  };
+  daily: { day: string; created: number; confirmed: number; delivered: number; cancelled: number }[];
+  cancellation_reasons: { reason: string; count: number }[];
+  city_breakdown: { shipping_city: string; order_count: number; revenue: string }[];
+  margins: {
+    revenue: string;
+    cost: string;
+    gross_profit: string;
+    expenses: string;
+    profit: string;
+    units: number;
+    margin_rate: number;
+    products: { product_name: string; sku: string; quantity: number; revenue: string; cost: string; profit: string; margin_rate: number }[];
+  };
+  expenses: {
+    total: string;
+    count: number;
+    by_category: { category: string; amount: string; count: number }[];
+    latest: ExpenseRow[];
+  };
+};
+type ExpenseRow = { id: number; category: string; amount: string; date: string; supplier?: number | null; reference: string; receipt?: string | null; notes: string; created_by_email?: string };
 
 const sections = [
   ['dashboard', 'Dashboard', LayoutDashboard],
   ['products', 'Produits', Package],
   ['categories', 'Categories', Tag],
   ['orders', 'Commandes', ShoppingBag],
+  ['orders-analytics', 'Orders analytics', BarChart3],
+  ['margins', 'Profit margins', Percent],
+  ['expenses', 'Depenses', FileClock],
   ['users', 'Clients', Users],
+  ['staff', 'Comptes equipe', Shield],
   ['promotions', 'Promotions', Tag],
-  ['settings', 'Settings', Settings],
-  ['logs', 'Audit logs', FileClock],
-  ['system', 'System', Activity],
+  ['home-sections', 'Home sections', LayoutDashboard],
 ];
 
 export function DeveloperPage() {
@@ -85,36 +135,232 @@ function DeveloperSection({ section }: { section: string }) {
   if (section === 'products') return <ProductsAdmin />;
   if (section === 'categories') return <CategoriesAdmin />;
   if (section === 'orders') return <OrdersAdmin />;
+  if (section === 'orders-analytics') return <OrdersAnalytics />;
+  if (section === 'margins') return <ProfitMargins />;
+  if (section === 'expenses') return <DeveloperExpenses />;
   if (section === 'users') return <DeveloperUsers />;
+  if (section === 'staff') return <StaffAdmin />;
   if (section === 'promotions') return <DeveloperPromotions />;
-  if (section === 'settings') return <DeveloperSettings />;
-  if (section === 'logs') return <DeveloperLogs />;
-  if (section === 'system') return <DeveloperSystem />;
+  if (section === 'home-sections') return <HomeSectionsAdmin />;
   return <DeveloperDashboard />;
 }
 
 function DeveloperDashboard() {
-  const { data, isLoading } = useQuery({ queryKey: ['developer-dashboard'], queryFn: async () => (await api.get<DeveloperMetrics>('/developer/dashboard/')).data });
+  const [filters, setFilters] = useState(() => ({ date_from: dateInput(daysAgo(13)), date_to: dateInput(new Date()), status: '', city: '', search: '' }));
+  const query = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) query.set(key, value);
+  });
+  const { data, isLoading, isFetching, refetch } = useQuery({ queryKey: ['developer-dashboard', filters], queryFn: async () => (await api.get<DeveloperMetrics>(`/developer/dashboard/?${query}`)).data });
   if (isLoading) return <div className="skeleton h-96" />;
-  const statusData = Object.entries(data?.orders_by_status || {}).map(([name, value]) => ({ name, value }));
+  const statusData = Object.entries(data?.orders_by_status || {}).map(([name, value]) => ({ name: statusLabel(name), value }));
+  const salesData = (data?.sales_by_day || []).map((row) => ({ ...row, sales: Number(row.sales || 0), label: new Date(row.day).toLocaleDateString('fr-MA', { day: '2-digit', month: 'short' }) }));
+  const clearFilters = () => setFilters({ date_from: dateInput(daysAgo(13)), date_to: dateInput(new Date()), status: '', city: '', search: '' });
+  const setQuickRange = (days: number) => setFilters((current) => ({ ...current, date_from: dateInput(daysAgo(days - 1)), date_to: dateInput(new Date()) }));
   return (
     <div className="grid gap-6">
-      <h1 className="font-heading text-3xl font-bold">Developer dashboard</h1>
+      <section className="rounded-dolphin bg-navy p-5 text-white shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold uppercase text-aqua">Pilotage reel</p>
+            <h1 className="mt-1 font-heading text-3xl font-bold">Developer dashboard</h1>
+            <p className="mt-2 max-w-2xl text-sm text-white/70">Suivi dynamique des commandes, ventes livrees, clients et produits avec filtres par periode, ville, statut et recherche.</p>
+          </div>
+          <button className="btn-secondary border-0 bg-white/10 text-white ring-white/20 hover:bg-white/15" onClick={() => refetch()} disabled={isFetching}><RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />Actualiser</button>
+        </div>
+      </section>
+
+      <section className="card p-4">
+        <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_1fr_auto]">
+          <label className="grid gap-1 text-sm font-semibold text-slate-600"><span className="flex items-center gap-1"><CalendarDays className="h-4 w-4 text-ocean" />Du</span><input className="input" type="date" value={filters.date_from} onChange={(e) => setFilters({ ...filters, date_from: e.target.value })} /></label>
+          <label className="grid gap-1 text-sm font-semibold text-slate-600"><span className="flex items-center gap-1"><CalendarDays className="h-4 w-4 text-ocean" />Au</span><input className="input" type="date" value={filters.date_to} onChange={(e) => setFilters({ ...filters, date_to: e.target.value })} /></label>
+          <label className="grid gap-1 text-sm font-semibold text-slate-600"><span className="flex items-center gap-1"><Tag className="h-4 w-4 text-ocean" />Statut</span><select className="input" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">Tous les statuts</option>{(data?.status_options || orderStatuses.map((value) => ({ value, label: statusLabel(value) }))).map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label>
+          <label className="grid gap-1 text-sm font-semibold text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-4 w-4 text-ocean" />Ville</span><select className="input" value={filters.city} onChange={(e) => setFilters({ ...filters, city: e.target.value })}><option value="">Toutes les villes</option>{(data?.cities || []).map((city) => <option key={city} value={city}>{city}</option>)}</select></label>
+          <div className="flex items-end"><button className="btn-secondary w-full" onClick={clearFilters}><X className="h-4 w-4" />Reset</button></div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[7, 14, 30].map((days) => <button key={days} className="btn-secondary min-h-9 px-3 py-1.5" onClick={() => setQuickRange(days)}>{days} jours</button>)}
+          <form className="ml-auto flex min-w-64 flex-1 items-center gap-2 rounded-dolphin border border-slate-200 px-3 py-2 lg:max-w-md" onSubmit={(e) => e.preventDefault()}>
+            <Search className="h-4 w-4 text-ocean" />
+            <input className="w-full bg-transparent text-sm" placeholder="Commande, client, telephone, tracking" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
+          </form>
+        </div>
+      </section>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Stat label="CA filtre livre" value={money(data?.filtered_revenue || 0)} icon={<Gauge />} />
+        <Stat label="Depenses filtrees" value={money(data?.filtered_expenses || 0)} icon={<FileClock />} />
+        <Stat label="Profit net estime" value={money(data?.net_profit || 0)} icon={<Percent />} />
+        <Stat label="Commandes filtrees" value={data?.filtered_orders || 0} icon={<ShoppingBag />} />
+        <Stat label="Livrees" value={data?.delivered_orders || 0} icon={<Check />} />
+        <Stat label="Taux livraison" value={`${data?.delivery_rate || 0}%`} icon={<Activity />} />
+        <Stat label="En attente" value={data?.new_orders || data?.pending_orders || 0} icon={<FileClock />} />
+        <Stat label="En livraison" value={data?.shipped_orders || 0} icon={<Truck />} />
+        <Stat label="Annulees" value={data?.cancelled_orders || 0} icon={<X />} />
+        <Stat label="Retours / remboursements" value={data?.returned_orders || 0} icon={<RefreshCw />} />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+        <Panel title="Ventes livrees par jour"><ResponsiveContainer width="100%" height={300}><AreaChart data={salesData}><CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" /><XAxis dataKey="label" tick={{ fontSize: 12 }} /><YAxis tick={{ fontSize: 12 }} /><Tooltip formatter={(value) => money(value as number)} /><Area type="monotone" dataKey="sales" stroke="#0077B6" fill="#48CAE4" fillOpacity={0.35} /></AreaChart></ResponsiveContainer></Panel>
+        <Panel title="Commandes par statut"><ResponsiveContainer width="100%" height={300}><PieChart><Pie data={statusData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={100} paddingAngle={2}>{statusData.map((_, i) => <Cell key={i} fill={['#0077B6', '#48CAE4', '#FF7A59', '#0B1F33', '#22C55E', '#A855F7', '#F59E0B'][i % 7]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></Panel>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-3">
+        <SimpleTable title="Top produits commandes" rows={(data?.top_products || []).map((product) => ({ ...product, revenue: money(product.revenue || 0) }))} columns={['product_name', 'sku', 'sales_count', 'revenue']} />
+        <SimpleTable title="Dernieres commandes" rows={(data?.latest_orders || []).map((order) => ({ ...order, status: statusLabel(order.status), total: money(order.total) }))} columns={['order_number', 'status', 'shipping_city', 'total']} />
+        <SimpleTable title="Villes actives" rows={(data?.city_breakdown || []).map((city) => ({ ...city, revenue: money(city.revenue || 0) }))} columns={['shipping_city', 'order_count', 'revenue']} />
+      </div>
+
       <div className="grid gap-4 md:grid-cols-4">
-        <Stat label="Ventes totales" value={money(data?.revenue_total || 0)} icon={<Gauge />} />
-        <Stat label="Ventes aujourd'hui" value={money(data?.revenue_today || 0)} icon={<Activity />} />
-        <Stat label="Commandes" value={data?.total_orders || 0} icon={<ShoppingBag />} />
+        <Stat label="CA total livre" value={money(data?.revenue_total || 0)} icon={<Gauge />} />
+        <Stat label="CA aujourd'hui" value={money(data?.revenue_today || 0)} icon={<Activity />} />
         <Stat label="Produits actifs" value={data?.products_active || 0} icon={<Package />} />
         <Stat label="Clients" value={data?.customers_total || 0} icon={<Users />} />
-        <Stat label="Annulees" value={data?.cancelled_orders || 0} icon={<Tag />} />
-        <Stat label="Panier moyen" value={money(data?.average_order_value || 0)} icon={<Gauge />} />
+      </div>
+    </div>
+  );
+}
+
+function daysAgo(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date;
+}
+
+function dateInput(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function useAnalyticsData() {
+  const [filters, setFilters] = useState(() => ({ date_from: dateInput(daysAgo(29)), date_to: dateInput(new Date()), city: '', search: '' }));
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const query = useQuery({ queryKey: ['developer-analytics', filters], queryFn: async () => (await api.get<DeveloperAnalytics>(`/developer/analytics/?${params}`)).data });
+  return { ...query, filters, setFilters };
+}
+
+function AnalyticsFilters({ data, filters, setFilters }: { data?: DeveloperAnalytics; filters: { date_from: string; date_to: string; city: string; search: string }; setFilters: (filters: { date_from: string; date_to: string; city: string; search: string }) => void }) {
+  return (
+    <div className="card p-4">
+      <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_1.4fr_auto]">
+        <label className="grid gap-1 text-sm font-semibold text-slate-600"><span className="flex items-center gap-1"><CalendarDays className="h-4 w-4 text-ocean" />Du</span><input className="input" type="date" value={filters.date_from} onChange={(e) => setFilters({ ...filters, date_from: e.target.value })} /></label>
+        <label className="grid gap-1 text-sm font-semibold text-slate-600"><span className="flex items-center gap-1"><CalendarDays className="h-4 w-4 text-ocean" />Au</span><input className="input" type="date" value={filters.date_to} onChange={(e) => setFilters({ ...filters, date_to: e.target.value })} /></label>
+        <label className="grid gap-1 text-sm font-semibold text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-4 w-4 text-ocean" />Ville</span><select className="input" value={filters.city} onChange={(e) => setFilters({ ...filters, city: e.target.value })}><option value="">Toutes les villes</option>{(data?.cities || []).map((city) => <option key={city} value={city}>{city}</option>)}</select></label>
+        <label className="grid gap-1 text-sm font-semibold text-slate-600"><span className="flex items-center gap-1"><Search className="h-4 w-4 text-ocean" />Recherche</span><input className="input" placeholder="Commande, client, telephone" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} /></label>
+        <div className="flex items-end"><button className="btn-secondary w-full" onClick={() => setFilters({ date_from: dateInput(daysAgo(29)), date_to: dateInput(new Date()), city: '', search: '' })}><X className="h-4 w-4" />Reset</button></div>
+      </div>
+    </div>
+  );
+}
+
+function OrdersAnalytics() {
+  const { data, isLoading, filters, setFilters } = useAnalyticsData();
+  if (isLoading) return <div className="skeleton h-96" />;
+  const daily = (data?.daily || []).map((row) => ({ ...row, label: new Date(row.day).toLocaleDateString('fr-MA', { day: '2-digit', month: 'short' }) }));
+  const reasons = data?.cancellation_reasons || [];
+  return (
+    <div className="grid gap-6">
+      <div>
+        <p className="text-sm font-bold uppercase text-ocean">Commandes</p>
+        <h1 className="font-heading text-3xl font-bold">Orders analytics</h1>
+      </div>
+      <AnalyticsFilters data={data} filters={filters} setFilters={setFilters} />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Stat label="Commandes creees" value={data?.orders.created || 0} icon={<ShoppingBag />} />
+        <Stat label="Confirmees" value={`${data?.orders.confirmed || 0} (${data?.orders.confirmation_rate || 0}%)`} icon={<Check />} />
+        <Stat label="Livrees" value={`${data?.orders.delivered || 0} (${data?.orders.delivery_rate || 0}%)`} icon={<Truck />} />
+        <Stat label="Annulees" value={`${data?.orders.cancelled || 0} (${data?.orders.cancel_rate || 0}%)`} icon={<X />} />
+        <Stat label="CA livre" value={money(data?.orders.delivered_revenue || 0)} icon={<Gauge />} />
+        <Stat label="Delai livraison moyen" value={`${data?.orders.avg_delivery_hours || 0}h`} icon={<Activity />} />
+      </div>
+      <div className="grid gap-6 xl:grid-cols-[1.7fr_1fr]">
+        <Panel title="Flux commandes"><ResponsiveContainer width="100%" height={320}><BarChart data={daily}><CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" /><XAxis dataKey="label" tick={{ fontSize: 12 }} /><YAxis tick={{ fontSize: 12 }} /><Tooltip /><Bar dataKey="created" name="Creees" fill="#0077B6" /><Bar dataKey="confirmed" name="Confirmees" fill="#48CAE4" /><Bar dataKey="delivered" name="Livrees" fill="#22C55E" /><Bar dataKey="cancelled" name="Annulees" fill="#FF7A59" /></BarChart></ResponsiveContainer></Panel>
+        <Panel title="Raisons annulation"><ResponsiveContainer width="100%" height={320}><PieChart><Pie data={reasons} dataKey="count" nameKey="reason" innerRadius={55} outerRadius={105}>{reasons.map((_, index) => <Cell key={index} fill={['#FF7A59', '#0B1F33', '#F59E0B', '#94A3B8', '#0077B6'][index % 5]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></Panel>
+      </div>
+      <SimpleTable title="Villes par commandes" rows={(data?.city_breakdown || []).map((city) => ({ ...city, revenue: money(city.revenue || 0) }))} columns={['shipping_city', 'order_count', 'revenue']} />
+    </div>
+  );
+}
+
+function ProfitMargins() {
+  const { data, isLoading, filters, setFilters } = useAnalyticsData();
+  if (isLoading) return <div className="skeleton h-96" />;
+  const products = (data?.margins.products || []).map((product) => ({ ...product, revenue: money(product.revenue || 0), cost: money(product.cost || 0), profit: money(product.profit || 0), margin_rate: `${product.margin_rate}%` }));
+  const expensesByCategory = (data?.expenses.by_category || []).map((row) => ({ ...row, amount: money(row.amount || 0) }));
+  return (
+    <div className="grid gap-6">
+      <div>
+        <p className="text-sm font-bold uppercase text-ocean">Finance</p>
+        <h1 className="font-heading text-3xl font-bold">Profit margins</h1>
+      </div>
+      <AnalyticsFilters data={data} filters={filters} setFilters={setFilters} />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <Stat label="CA livre" value={money(data?.margins.revenue || 0)} icon={<Gauge />} />
+        <Stat label="Cout produits" value={money(data?.margins.cost || 0)} icon={<Package />} />
+        <Stat label="Profit brut estime" value={money(data?.margins.gross_profit || 0)} icon={<Activity />} />
+        <Stat label="Depenses" value={money(data?.margins.expenses || 0)} icon={<FileClock />} />
+        <Stat label="Profit net estime" value={money(data?.margins.profit || 0)} icon={<Percent />} />
+        <Stat label="Marge nette" value={`${data?.margins.margin_rate || 0}%`} icon={<Percent />} />
+        <Stat label="Unites vendues" value={data?.margins.units || 0} icon={<ShoppingBag />} />
       </div>
       <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-        <Panel title="Ventes des 7 derniers jours"><ResponsiveContainer width="100%" height={280}><AreaChart data={data?.sales_by_day || []}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="day" /><YAxis /><Tooltip /><Area type="monotone" dataKey="sales" stroke="#0077B6" fill="#48CAE4" /></AreaChart></ResponsiveContainer></Panel>
-        <Panel title="Commandes par statut"><ResponsiveContainer width="100%" height={280}><PieChart><Pie data={statusData} dataKey="value" nameKey="name" outerRadius={95}>{statusData.map((_, i) => <Cell key={i} fill={['#0077B6', '#48CAE4', '#FF7A59', '#0B1F33', '#94A3B8'][i % 5]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></Panel>
+        <SimpleTable title="Profit par produit livre" rows={products} columns={['product_name', 'sku', 'quantity', 'revenue', 'cost', 'profit', 'margin_rate']} />
+        <div className="grid gap-6">
+          <SimpleTable title="Depenses par categorie" rows={expensesByCategory} columns={['category', 'count', 'amount']} />
+          <InfoCard title="Note calcul" rows={['Profit brut = total ligne livree - cost_price x quantite.', 'Profit net estime = profit brut - depenses de la periode.', 'Les produits sans cost_price utilisent 0 MAD de cout.']} />
+        </div>
       </div>
-      <div className="grid gap-6 xl:grid-cols-2"><SimpleTable title="Top produits" rows={data?.top_products || []} columns={['name', 'sku', 'sales_count']} /><SimpleTable title="Dernieres commandes" rows={data?.latest_orders || []} columns={['order_number', 'status', 'shipping_city', 'total']} /></div>
     </div>
+  );
+}
+
+function DeveloperExpenses() {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ category: '', amount: '', date: dateInput(new Date()), reference: '', notes: '' });
+  const [search, setSearch] = useState('');
+  const params = new URLSearchParams({ ordering: '-date' });
+  if (search) params.set('search', search);
+  const expenses = useQuery({ queryKey: ['developer-expenses', search], queryFn: async () => (await api.get<Paginated<ExpenseRow>>(`/developer/expenses/?${params}`)).data });
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    await api.post('/developer/expenses/', form);
+    toast.success('Depense ajoutee');
+    setForm({ category: '', amount: '', date: dateInput(new Date()), reference: '', notes: '' });
+    qc.invalidateQueries({ queryKey: ['developer-expenses'] });
+    qc.invalidateQueries({ queryKey: ['developer-analytics'] });
+    qc.invalidateQueries({ queryKey: ['developer-dashboard'] });
+  };
+  const remove = async (expense: ExpenseRow) => {
+    await api.delete(`/developer/expenses/${expense.id}/`);
+    toast.success('Depense supprimee');
+    qc.invalidateQueries({ queryKey: ['developer-expenses'] });
+    qc.invalidateQueries({ queryKey: ['developer-analytics'] });
+    qc.invalidateQueries({ queryKey: ['developer-dashboard'] });
+  };
+  const rows = (expenses.data?.results || []).map((expense) => ({ ...expense, amount: money(expense.amount), notes: expense.notes || '-', reference: expense.reference || '-' }));
+  return (
+    <ResourcePage title="Depenses" exportKind="expenses">
+      <div className="grid gap-6">
+        <form className="card grid gap-4 p-5" onSubmit={save}>
+          <div className="grid gap-4 md:grid-cols-5">
+            <label className="grid gap-1 font-semibold">Categorie<input className="input" required placeholder="Transport, Ads, Emballage..." value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></label>
+            <label className="grid gap-1 font-semibold">Montant<input className="input" required type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></label>
+            <label className="grid gap-1 font-semibold">Date<input className="input" required type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></label>
+            <label className="grid gap-1 font-semibold">Reference<input className="input" placeholder="Facture, bon..." value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></label>
+            <div className="flex items-end"><button className="btn-primary w-full"><Save className="h-4 w-4" />Ajouter</button></div>
+          </div>
+          <textarea className="input min-h-24" placeholder="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+        </form>
+        <div className="card overflow-hidden">
+          <div className="flex flex-wrap gap-3 border-b p-4"><input className="input max-w-sm" placeholder="Rechercher categorie, reference, notes" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+          <SimpleTable rows={rows} columns={['date', 'category', 'amount', 'reference', 'notes', 'created_by_email']} />
+          <div className="border-t p-4 text-right text-sm text-slate-500">Suppression rapide: cliquez sur X dans la liste ci-dessous.</div>
+          <div className="grid gap-2 p-4 pt-0">{(expenses.data?.results || []).slice(0, 8).map((expense) => <div key={expense.id} className="flex flex-wrap items-center justify-between gap-3 rounded-dolphin border p-3 text-sm"><span><strong>{expense.category}</strong> - {money(expense.amount)} <span className="text-slate-500">({expense.date})</span></span><button className="btn-secondary text-coral" onClick={() => remove(expense)}><X className="h-4 w-4" />Supprimer</button></div>)}</div>
+        </div>
+      </div>
+    </ResourcePage>
   );
 }
 
@@ -397,20 +643,6 @@ function ConfirmMini({ title, text, onCancel, onConfirm }: { title: string; text
       </div>
     </div>
   );
-}
-
-function DeveloperSettings() {
-  return <ResourcePage title="Settings"><div className="grid gap-4 md:grid-cols-2"><InfoCard title="Store" rows={['Nom: DOLPHIN', 'Devise: MAD', 'Pays: Maroc']} /><InfoCard title="Securite" rows={['Secrets masques', 'JWT actif', 'Media local configurable']} /></div></ResourcePage>;
-}
-
-function DeveloperLogs() {
-  const logs = useQuery({ queryKey: ['developer-logs'], queryFn: async () => (await api.get<Paginated<AuditLog>>('/developer/audit-logs/')).data });
-  return <ResourcePage title="Audit logs"><SimpleTable rows={logs.data?.results || []} columns={['created_at', 'actor_email', 'action', 'entity', 'entity_id', 'ip_address']} /></ResourcePage>;
-}
-
-function DeveloperSystem() {
-  const system = useQuery({ queryKey: ['developer-system'], queryFn: async () => (await api.get<SystemInfo>('/developer/system/')).data });
-  return <ResourcePage title="System status"><div className="grid gap-4 md:grid-cols-3"><InfoCard title="Backend" rows={[`Status: ${system.data?.backend_status}`, `Django: ${system.data?.django_version}`, `Python: ${system.data?.python_version}`]} /><InfoCard title="Database" rows={[`Status: ${system.data?.database_status}`, `API: ${system.data?.api_status}`, `Env: ${system.data?.environment}`]} /><InfoCard title="Storage" rows={[`Media: ${system.data?.media_root_exists ? 'ready' : 'missing'}`, `Server time: ${system.data?.server_time ? new Date(system.data.server_time).toLocaleString('fr-MA') : ''}`, `Last: ${system.data?.last_activity?.action || 'none'}`]} /></div></ResourcePage>;
 }
 
 function ResourcePage({ title, exportKind, children }: { title: string; exportKind?: string; children: JSX.Element }) {
