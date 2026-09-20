@@ -1,12 +1,12 @@
-import { Activity, BarChart3, Bell, CalendarDays, Check, Download, Edit, FileClock, Gauge, Info, LayoutDashboard, MapPin, Package, Percent, RefreshCw, Save, Search, Shield, ShoppingBag, Tag, Truck, Users, X } from 'lucide-react';
+import { Activity, BarChart3, Bell, CalendarDays, Check, Download, Edit, FileClock, Gauge, Info, LayoutDashboard, MapPin, Package, Percent, RefreshCw, Save, Search, Send, Settings, Shield, ShoppingBag, Tag, Truck, Users, X } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api, Category, downloadFile, Paginated, Product, User } from '../lib/api';
+import { api, Category, downloadFile, HomeDesignSettings, Paginated, Product, User } from '../lib/api';
 import { money } from '../lib/i18n';
-import { CategoriesAdmin, HomeSectionsAdmin, OrdersAdmin, ProductsAdmin, StaffAdmin } from './Admin';
+import { BrandsAdmin, CategoriesAdmin, HomeSectionsAdmin, OrdersAdmin, OzonParcelsAdmin, OzonSettingsAdmin, OzonTrackingAdmin, ProductsAdmin, StaffAdmin } from './Admin';
 
 type DeveloperMetrics = {
   revenue_total: string;
@@ -103,7 +103,12 @@ const sections = [
   ['dashboard', 'Dashboard', LayoutDashboard],
   ['products', 'Produits', Package],
   ['categories', 'Categories', Tag],
+  ['brands', 'Marques', Tag],
+  ['home-design', 'Home design', Settings],
   ['orders', 'Commandes', ShoppingBag],
+  ['ozon-parcels', 'Ozon colis', Send],
+  ['ozon-tracking', 'Ozon tracking', Truck],
+  ['ozon-settings', 'Ozon settings', Settings],
   ['orders-analytics', 'Orders analytics', BarChart3],
   ['margins', 'Profit margins', Percent],
   ['expenses', 'Depenses', FileClock],
@@ -134,7 +139,12 @@ export function DeveloperPage() {
 function DeveloperSection({ section }: { section: string }) {
   if (section === 'products') return <ProductsAdmin />;
   if (section === 'categories') return <CategoriesAdmin />;
+  if (section === 'brands') return <BrandsAdmin />;
+  if (section === 'home-design') return <DeveloperHomeDesign />;
   if (section === 'orders') return <OrdersAdmin />;
+  if (section === 'ozon-parcels') return <OzonParcelsAdmin />;
+  if (section === 'ozon-tracking') return <OzonTrackingAdmin />;
+  if (section === 'ozon-settings') return <OzonSettingsAdmin />;
   if (section === 'orders-analytics') return <OrdersAnalytics />;
   if (section === 'margins') return <ProfitMargins />;
   if (section === 'expenses') return <DeveloperExpenses />;
@@ -143,6 +153,85 @@ function DeveloperSection({ section }: { section: string }) {
   if (section === 'promotions') return <DeveloperPromotions />;
   if (section === 'home-sections') return <HomeSectionsAdmin />;
   return <DeveloperDashboard />;
+}
+
+const homeDesignFields: { key: keyof HomeDesignSettings; label: string; type?: string; area?: boolean }[] = [
+  { key: 'store_name', label: 'Nom boutique' },
+  { key: 'announcement_text', label: 'Texte barre superieure' },
+  { key: 'announcement_bg_color', label: 'Couleur barre superieure', type: 'color' },
+  { key: 'announcement_text_color', label: 'Couleur texte barre superieure', type: 'color' },
+  { key: 'hero_eyebrow', label: 'Badge hero' },
+  { key: 'hero_title', label: 'Titre hero' },
+  { key: 'hero_subtitle', label: 'Description hero', area: true },
+  { key: 'primary_cta_label', label: 'Bouton principal' },
+  { key: 'primary_cta_url', label: 'URL bouton principal' },
+  { key: 'secondary_cta_label', label: 'Bouton secondaire' },
+  { key: 'secondary_cta_url', label: 'URL bouton secondaire' },
+  { key: 'trust_1', label: 'Point confiance 1' },
+  { key: 'trust_2', label: 'Point confiance 2' },
+  { key: 'trust_3', label: 'Point confiance 3' },
+  { key: 'service_1_title', label: 'Service 1 titre' },
+  { key: 'service_1_text', label: 'Service 1 texte', area: true },
+  { key: 'service_2_title', label: 'Service 2 titre' },
+  { key: 'service_2_text', label: 'Service 2 texte', area: true },
+  { key: 'service_3_title', label: 'Service 3 titre' },
+  { key: 'service_3_text', label: 'Service 3 texte', area: true },
+  { key: 'newsletter_title', label: 'Newsletter titre' },
+  { key: 'newsletter_subtitle', label: 'Newsletter texte', area: true },
+  { key: 'primary_color', label: 'Couleur principale', type: 'color' },
+  { key: 'accent_color', label: 'Couleur accent', type: 'color' },
+];
+
+function DeveloperHomeDesign() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({ queryKey: ['home-design'], queryFn: async () => (await api.get<HomeDesignSettings>('/settings/design/')).data });
+  const [form, setForm] = useState<Partial<HomeDesignSettings>>({});
+  const current = { ...(data || {}), ...form } as HomeDesignSettings;
+  const set = (key: keyof HomeDesignSettings, value: string) => setForm((state) => ({ ...state, [key]: value }));
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    await api.patch('/settings/design/', current);
+    toast.success('Home design mis a jour');
+    setForm({});
+    qc.invalidateQueries({ queryKey: ['home-design'] });
+  };
+  if (isLoading) return <div className="skeleton h-96" />;
+  return (
+    <div className="grid gap-6">
+      <div>
+        <p className="text-sm font-bold uppercase text-ocean">Boutique</p>
+        <h1 className="font-heading text-3xl font-bold">Home design</h1>
+        <p className="mt-2 max-w-2xl text-sm text-slate-600">Modifiez les textes, boutons, arguments et couleurs de la page d'accueil.</p>
+      </div>
+      <form className="grid gap-6" onSubmit={save}>
+        <div className="card grid gap-4 p-5 md:grid-cols-2">
+          {homeDesignFields.map((field) => (
+            <label key={field.key} className={`grid gap-1 font-semibold ${field.area ? 'md:col-span-2' : ''}`}>
+              {field.label}
+              {field.area ? (
+                <textarea className="input min-h-24" value={current[field.key] || ''} onChange={(event) => set(field.key, event.target.value)} />
+              ) : (
+                <input className="input" type={field.type || 'text'} value={current[field.key] || ''} onChange={(event) => set(field.key, event.target.value)} />
+              )}
+            </label>
+          ))}
+        </div>
+        <div className="card grid gap-4 p-5 lg:grid-cols-[1fr_380px]">
+          <div>
+            <div className="mb-5 rounded-md px-4 py-2 text-center text-sm font-bold" style={{ backgroundColor: current.announcement_bg_color || '#FF6B4A', color: current.announcement_text_color || '#FFFFFF' }}>{current.announcement_text}</div>
+            <p className="mb-2 inline-flex rounded-full px-3 py-1 text-sm font-bold" style={{ backgroundColor: `${current.primary_color || '#0077B6'}1A`, color: current.primary_color || '#0077B6' }}>{current.hero_eyebrow}</p>
+            <h2 className="font-heading text-4xl font-extrabold text-navy">{current.hero_title}</h2>
+            <p className="mt-3 text-slate-600">{current.hero_subtitle}</p>
+            <div className="mt-5 flex flex-wrap gap-3"><span className="btn-primary" style={{ backgroundColor: current.primary_color || '#0077B6' }}>{current.primary_cta_label}</span><span className="btn-secondary" style={{ color: current.primary_color || '#0077B6' }}>{current.secondary_cta_label}</span></div>
+          </div>
+          <div className="grid gap-3">
+            {[current.trust_1, current.trust_2, current.trust_3].map((item) => <div key={item} className="panel p-4 text-sm font-bold text-navy">{item}</div>)}
+          </div>
+        </div>
+        <button className="btn-primary w-fit"><Save className="h-4 w-4" />Enregistrer</button>
+      </form>
+    </div>
+  );
 }
 
 function DeveloperDashboard() {

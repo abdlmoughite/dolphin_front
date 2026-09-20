@@ -1,11 +1,12 @@
-import { Bell, Instagram, LayoutDashboard, LogOut, Menu, MessageCircle, Search, ShoppingCart, X } from 'lucide-react';
+import { Instagram, Menu, MessageCircle, Search, ShoppingCart, X } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { FormEvent, ReactNode, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import logo from '../assets/dolphin-logo.jpeg';
 import { CheckoutFormPanel } from '../pages/CartCheckout';
+import { api, HomeDesignSettings } from '../lib/api';
 import { useAuth } from '../stores/auth';
 import { useCart } from '../stores/cart';
-import { adminPages, canAccessAdminPage } from '../lib/adminPermissions';
 
 const nav = [
   ['Accueil', '/'],
@@ -19,8 +20,10 @@ export function StoreLayout() {
   const [search, setSearch] = useState('');
   const { user, logout } = useAuth();
   const { cart, checkoutOpen, setCheckoutOpen } = useCart();
+  const design = useQuery({ queryKey: ['home-design'], queryFn: async () => (await api.get<HomeDesignSettings>('/settings/design/')).data });
   const navigate = useNavigate();
   const cartCount = cart?.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
+  const announcement = design.data?.announcement_text || 'Livraison gratuite partout au Maroc';
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
     navigate(`/catalogue${search.trim() ? `?search=${encodeURIComponent(search.trim())}` : ''}`);
@@ -28,7 +31,7 @@ export function StoreLayout() {
   };
   return (
     <div className="min-h-screen bg-[#f6fbfd]">
-      <div className="bg-coral px-4 py-2 text-center text-sm font-bold text-white">Livraison gratuite partout au Maroc</div>
+      {announcement && <div className="px-4 py-2 text-center text-sm font-bold" style={{ backgroundColor: design.data?.announcement_bg_color || '#FF6B4A', color: design.data?.announcement_text_color || '#FFFFFF' }}>{announcement}</div>}
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
           <button className="md:hidden" onClick={() => setOpen(true)} aria-label="Ouvrir le menu"><Menu /></button>
@@ -40,7 +43,7 @@ export function StoreLayout() {
             <Search className="h-5 w-5 text-ocean" /><input className="w-full bg-transparent" placeholder="Rechercher un produit" value={search} onChange={(event) => setSearch(event.target.value)} />
           </form>
           <Link to="/panier" aria-label="Panier" className="relative rounded-full p-2 hover:bg-mist"><ShoppingCart /><span className="absolute -right-1 -top-1 rounded-full bg-coral px-1.5 text-xs font-bold text-white">{cartCount}</span></Link>
-          {user && user.role !== 'CUSTOMER' && <><Link className="btn-secondary hidden sm:inline-flex" to={user.role === 'SUPER_ADMIN' ? '/developer' : '/admin/dashboard'}>Admin</Link><button className="btn-secondary hidden sm:inline-flex" onClick={logout}>Sortir</button></>}
+          {user?.role === 'SUPER_ADMIN' && <><Link className="btn-secondary hidden sm:inline-flex" to="/developer">Developer</Link><button className="btn-secondary hidden sm:inline-flex" onClick={logout}>Sortir</button></>}
         </div>
       </header>
       {open && (
@@ -52,6 +55,7 @@ export function StoreLayout() {
             <div className="grid gap-3">{nav.map(([label, to]) => <Link key={to} to={to} onClick={() => setOpen(false)} className="rounded-dolphin px-3 py-2 font-semibold hover:bg-mist">{label}</Link>)}</div>
             <div className="mt-6 grid gap-3 border-t pt-4">
               <Link className="btn-primary" to="/panier" onClick={() => setOpen(false)}>Panier ({cartCount})</Link>
+              {user?.role === 'SUPER_ADMIN' && <Link className="btn-secondary" to="/developer" onClick={() => setOpen(false)}>Developer</Link>}
               {user ? <button className="btn-secondary" onClick={() => logout().then(() => setOpen(false))}>Sortir</button> : <Link className="btn-secondary" to="/connexion" onClick={() => setOpen(false)}>Connexion</Link>}
             </div>
           </aside>
@@ -121,34 +125,6 @@ function FloatingSocialLinks() {
 
 function FooterBlock({ title, items }: { title: string; items: string[] }) {
   return <div><h3 className="mb-3 font-heading text-lg">{title}</h3><ul className="grid gap-2 text-white/80">{items.map((item) => <li key={item}>{item}</li>)}</ul></div>;
-}
-
-export function AdminLayout() {
-  const [open, setOpen] = useState(false);
-  const { user, logout } = useAuth();
-  const links = adminPages.map(([key]) => key).filter((link) => canAccessAdminPage(user, link));
-  const navNode = (
-    <nav className="grid gap-2">{links.map((link) => <NavLink key={link} to={`/admin/${link}`} onClick={() => setOpen(false)} className={({ isActive }) => `flex items-center gap-2 rounded-dolphin px-3 py-2 text-sm font-semibold capitalize ${isActive ? 'bg-ocean text-white' : 'text-white/85 hover:bg-white/10'}`}><LayoutDashboard className="h-4 w-4" />{link.replace(/-/g, ' ')}</NavLink>)}</nav>
-  );
-  return (
-    <div className="min-h-screen bg-slate-50 lg:flex">
-      <aside className="hidden bg-navy p-4 text-white lg:block lg:min-h-screen lg:w-72">
-        <img src={logo} alt="DOLPHIN" className="mb-8 h-12 rounded bg-white p-1" />
-        {navNode}
-      </aside>
-      {open && <div className="fixed inset-0 z-50 bg-navy/40 lg:hidden" onClick={() => setOpen(false)}><aside className="h-full w-80 bg-navy p-4 text-white" onClick={(event) => event.stopPropagation()}><button className="mb-4 ml-auto block" onClick={() => setOpen(false)}><X /></button><img src={logo} alt="DOLPHIN" className="mb-6 h-12 rounded bg-white p-1" />{navNode}</aside></div>}
-      <section className="flex-1">
-        <header className="sticky top-0 z-30 border-b bg-white/95 px-4 py-3 backdrop-blur md:px-8">
-          <div className="flex items-center gap-3">
-            <button className="rounded-full p-2 hover:bg-mist lg:hidden" onClick={() => setOpen(true)}><Menu /></button>
-            <div><p className="text-xs font-bold uppercase text-ocean">Dolphin Admin</p><p className="text-sm text-slate-500">{user?.email}</p></div>
-            <div className="ml-auto flex items-center gap-2"><Bell className="h-5 w-5 text-ocean" /><button className="btn-secondary" onClick={logout}><LogOut className="h-4 w-4" />Sortir</button></div>
-          </div>
-        </header>
-        <main className="p-4 md:p-8"><Outlet /></main>
-      </section>
-    </div>
-  );
 }
 
 export function PageShell({ title, children }: { title: string; children: ReactNode }) {

@@ -1,10 +1,10 @@
-import { Archive, BarChart3, Check, Copy, Download, Edit, PackageCheck, Plus, RotateCcw, Save, Trash2, Upload, Users, X } from 'lucide-react';
+import { Archive, BarChart3, Check, Copy, Download, Edit, PackageCheck, Plus, RotateCcw, Save, Send, Trash2, Truck, Upload, Users, X } from 'lucide-react';
 import { FormEvent, ReactNode, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api, Brand, Category, downloadFile, HomeSection, mediaUrl, Paginated, Product } from '../lib/api';
+import { api, Brand, Category, downloadFile, HomeSection, mediaUrl, Paginated, Product, readApiError } from '../lib/api';
 import { money } from '../lib/i18n';
 import { invalidateProductQueries, productQueryKeys } from '../lib/queryKeys';
 import { Breadcrumb, ConfirmDialog, EmptyState, ErrorState, FormField, ImageUploader, Pagination, SearchInput, SelectField, StatusBadge } from '../components/ui';
@@ -88,6 +88,9 @@ export function AdminTablePage() {
   if (section === 'brands') return <BrandsAdmin />;
   if (section === 'imports') return <ProductImportAdmin />;
   if (section === 'orders') return <OrdersAdmin />;
+  if (section === 'ozon-parcels') return <OzonParcelsAdmin />;
+  if (section === 'ozon-tracking') return <OzonTrackingAdmin />;
+  if (section === 'ozon-settings') return <OzonSettingsAdmin />;
   if (section === 'customers') return <CustomersAdmin />;
   if (section === 'staff') return <StaffAdmin />;
   if (section === 'coupons') return <ResourceAdmin title="Coupons" endpoint="/coupons/" fields={couponFields} />;
@@ -152,7 +155,7 @@ export function OrdersAdmin() {
             <tbody>
               {orders.data?.results.map((order) => (
                 <tr key={order.id} className="border-t">
-                  <td className="p-3 font-semibold"><Link className="text-ocean" to={`/admin/orders/${order.id}`}>{order.order_number}</Link><p className="text-xs font-normal text-slate-500">{new Date(order.created_at).toLocaleString('fr-MA')}</p></td>
+                  <td className="p-3 font-semibold">{order.order_number}<p className="text-xs font-normal text-slate-500">{new Date(order.created_at).toLocaleString('fr-MA')}</p></td>
                   <td className="p-3">{order.shipping_full_name}<p className="text-xs text-slate-500">{order.guest_email}</p></td>
                   <td className="p-3">{order.shipping_phone}</td>
                   <td className="p-3">{order.shipping_city}</td>
@@ -232,7 +235,7 @@ export function ProductsAdmin() {
   };
   return (
     <div>
-      <Breadcrumb items={[{ label: 'Admin', to: '/admin/dashboard' }, { label: 'Produits' }]} />
+      <Breadcrumb items={[{ label: 'Developer', to: '/developer' }, { label: 'Produits' }]} />
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><h1 className="font-heading text-3xl font-bold">Gestion des produits</h1><button className="btn-primary" onClick={() => { setEditing(null); setOpen(true); }}><Plus className="h-4 w-4" />Nouveau produit</button></div>
       <div className="card overflow-hidden">
         <div className="grid gap-3 border-b p-4">
@@ -594,22 +597,103 @@ function CategoryProductsModal({ category, onClose }: { category: Category; onCl
   );
 }
 
-function BrandsAdmin() {
+export function BrandsAdmin() {
   const qc = useQueryClient();
-  const [form, setForm] = useState({ slug: '', name: '' });
-  const brands = useQuery({ queryKey: ['admin-brands-full'], queryFn: async () => (await api.get<Paginated<Brand>>('/brands/')).data });
+  const [form, setForm] = useState<{ slug: string; name: string; is_active: boolean; logo: File | null }>({ slug: '', name: '', is_active: true, logo: null });
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [deleting, setDeleting] = useState<Brand | null>(null);
+  const query = new URLSearchParams();
+  if (search) query.set('search', search);
+  query.set('page', String(page));
+  const brands = useQuery({ queryKey: ['admin-brands-full', search, page], queryFn: async () => (await api.get<Paginated<Brand>>(`/brands/?${query}`)).data });
+  const resetForm = () => setForm({ slug: '', name: '', is_active: true, logo: null });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['admin-brands-full'] });
+    qc.invalidateQueries({ queryKey: ['admin-brands'] });
+    invalidateProductQueries(qc);
+  };
   const save = async (e: FormEvent) => {
     e.preventDefault();
+    const payload = new FormData();
+    payload.append('name', form.name.trim());
+    payload.append('is_active', String(form.is_active));
+    if (form.logo) payload.append('logo', form.logo);
     if (form.slug) {
-      await api.patch(`/brands/${form.slug}/`, { name: form.name });
+      await api.patch(`/brands/${form.slug}/`, payload);
     } else {
-      await api.post('/brands/', { name: form.name });
+      await api.post('/brands/', payload);
     }
     toast.success('Marque enregistree');
-    setForm({ slug: '', name: '' });
-    qc.invalidateQueries({ queryKey: ['admin-brands-full'] });
+    resetForm();
+    refresh();
   };
-  return <AdminCrudShell title="Marques"><form className="card mb-6 flex gap-3 p-4" onSubmit={save}><input required className="input max-w-sm" placeholder="Nom de marque" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><button className="btn-primary"><Save className="h-4 w-4" />Enregistrer</button></form><Rows rows={brands.data?.results || []} onEdit={(b) => setForm({ slug: b.slug, name: b.name })} onDelete={(b) => api.delete(`/brands/${b.slug}/`).then(() => qc.invalidateQueries({ queryKey: ['admin-brands-full'] }))} /></AdminCrudShell>;
+  const edit = (brand: Brand) => setForm({ slug: brand.slug, name: brand.name, is_active: brand.is_active ?? true, logo: null });
+  const remove = async () => {
+    if (!deleting) return;
+    await api.delete(`/brands/${deleting.slug}/`);
+    toast.success('Marque supprimee');
+    setDeleting(null);
+    refresh();
+  };
+
+  return (
+    <AdminCrudShell title="Gestion des marques">
+      <form className="card mb-6 grid gap-4 p-5 lg:grid-cols-[1fr_220px_180px_auto]" onSubmit={save}>
+        <FormField required label="Nom de marque" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+        <label className="grid gap-1 font-semibold">
+          Logo
+          <input className="input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setForm({ ...form, logo: event.target.files?.[0] || null })} />
+        </label>
+        <label className="flex items-center gap-2 self-end font-semibold">
+          <input type="checkbox" checked={form.is_active} onChange={(event) => setForm({ ...form, is_active: event.target.checked })} />
+          Active
+        </label>
+        <div className="flex flex-wrap items-end gap-2">
+          <button className="btn-primary" disabled={!form.name.trim()}><Save className="h-4 w-4" />{form.slug ? 'Modifier' : 'Ajouter'}</button>
+          {form.slug && <button type="button" className="btn-secondary" onClick={resetForm}><X className="h-4 w-4" />Annuler</button>}
+        </div>
+      </form>
+
+      <div className="card overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
+          <SearchInput value={search} onChange={(value) => { setSearch(value); setPage(1); }} placeholder="Rechercher une marque" />
+          <button className="btn-secondary" onClick={resetForm}><Plus className="h-4 w-4" />Nouvelle marque</button>
+        </div>
+        {brands.isLoading ? <div className="p-4"><EmptyState title="Chargement" text="Les marques sont en cours de chargement." /></div> : brands.isError ? <div className="p-4"><ErrorState onRetry={() => brands.refetch()} /></div> : !brands.data?.results.length ? <div className="p-4"><EmptyState title="Aucune marque" text="Ajoutez votre premiere marque pour organiser le catalogue." /></div> : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="bg-mist">
+                <tr><th className="p-3">Logo</th><th className="p-3">Marque</th><th className="p-3">Slug</th><th className="p-3">Statut</th><th className="p-3">Actions</th></tr>
+              </thead>
+              <tbody>
+                {brands.data.results.map((brand) => (
+                  <tr key={brand.id} className="border-t">
+                    <td className="p-3">
+                      <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md bg-mist text-xs font-bold text-slate-400">
+                        {brand.logo ? <img className="h-full w-full object-cover" src={mediaUrl(brand.logo)} alt={brand.name} /> : brand.name.slice(0, 2).toUpperCase()}
+                      </div>
+                    </td>
+                    <td className="p-3 font-semibold text-navy">{brand.name}</td>
+                    <td className="p-3 text-slate-500">{brand.slug}</td>
+                    <td className="p-3"><StatusBadge status={(brand.is_active ?? true) ? 'ACTIVE' : 'INACTIVE'} /></td>
+                    <td className="p-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button className="btn-secondary" onClick={() => edit(brand)}><Edit className="h-4 w-4" />Modifier</button>
+                        <button className="btn-secondary text-coral" onClick={() => setDeleting(brand)}><Trash2 className="h-4 w-4" />Supprimer</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {brands.data && <div className="mt-4"><Pagination count={brands.data.count} page={page} onPage={setPage} /></div>}
+      {deleting && <ConfirmDialog title="Supprimer cette marque ?" description={`La marque ${deleting.name} sera supprimee. Les produits lies garderont leur fiche sans marque.`} confirmLabel="Supprimer" onCancel={() => setDeleting(null)} onConfirm={remove} />}
+    </AdminCrudShell>
+  );
 }
 
 export function HomeSectionsAdmin() {
@@ -817,8 +901,8 @@ export function AdminProductNewPage() {
   const brands = useQuery({ queryKey: ['admin-brands'], queryFn: async () => (await api.get<Paginated<Brand>>('/brands/')).data });
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><h1 className="font-heading text-3xl font-bold">Nouveau produit</h1><Link className="btn-secondary" to="/admin/products">Retour</Link></div>
-      <ProductModal product={null} categories={categories.data?.results || []} brands={brands.data?.results || []} onClose={() => navigate('/admin/products')} onSaved={() => navigate('/admin/products')} embedded />
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><h1 className="font-heading text-3xl font-bold">Nouveau produit</h1><Link className="btn-secondary" to="/developer/products">Retour</Link></div>
+      <ProductModal product={null} categories={categories.data?.results || []} brands={brands.data?.results || []} onClose={() => navigate('/developer/products')} onSaved={() => navigate('/developer/products')} embedded />
     </div>
   );
 }
@@ -833,8 +917,8 @@ export function AdminProductEditPage() {
   if (!product.data) return <AdminCrudShell title="Produit"><div className="card p-6 text-coral">Produit introuvable.</div></AdminCrudShell>;
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><h1 className="font-heading text-3xl font-bold">Modifier produit</h1><Link className="btn-secondary" to="/admin/products">Retour</Link></div>
-      <ProductModal product={product.data} categories={categories.data?.results || []} brands={brands.data?.results || []} onClose={() => navigate('/admin/products')} onSaved={() => navigate('/admin/products')} embedded />
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><h1 className="font-heading text-3xl font-bold">Modifier produit</h1><Link className="btn-secondary" to="/developer/products">Retour</Link></div>
+      <ProductModal product={product.data} categories={categories.data?.results || []} brands={brands.data?.results || []} onClose={() => navigate('/developer/products')} onSaved={() => navigate('/developer/products')} embedded />
     </div>
   );
 }
@@ -847,13 +931,210 @@ export function AdminOrderDetailPage() {
   if (!order.data) return <AdminCrudShell title="Commande"><div className="card p-6 text-coral">Commande introuvable.</div></AdminCrudShell>;
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><div><h1 className="font-heading text-3xl font-bold">{order.data.order_number}</h1><p className="text-sm text-slate-500">{new Date(order.data.created_at).toLocaleString('fr-MA')} - {statusLabel(order.data.status)}</p></div><div className="flex flex-wrap gap-2"><Link className="btn-secondary" to="/admin/orders">Retour</Link><button className="btn-secondary" onClick={() => downloadFile(`/orders/${order.data.id}/invoice/`, `facture-${order.data.order_number}.pdf`)}><Download className="h-4 w-4" />Facture</button><button className="btn-primary" onClick={() => setEditing(order.data)}><Edit className="h-4 w-4" />Modifier</button></div></div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><div><h1 className="font-heading text-3xl font-bold">{order.data.order_number}</h1><p className="text-sm text-slate-500">{new Date(order.data.created_at).toLocaleString('fr-MA')} - {statusLabel(order.data.status)}</p></div><div className="flex flex-wrap gap-2"><Link className="btn-secondary" to="/developer/orders">Retour</Link><button className="btn-secondary" onClick={() => downloadFile(`/orders/${order.data.id}/invoice/`, `facture-${order.data.order_number}.pdf`)}><Download className="h-4 w-4" />Facture</button><button className="btn-primary" onClick={() => setEditing(order.data)}><Edit className="h-4 w-4" />Modifier</button></div></div>
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div className="card overflow-hidden"><h2 className="border-b p-4 font-heading text-xl font-bold">Articles</h2>{order.data.items.map((item) => <div key={item.id} className="grid gap-2 border-b p-4 text-sm md:grid-cols-[1fr_auto_auto_auto]"><span><strong>{item.product_name}</strong><p className="text-slate-500">{item.variant_label || item.sku}</p></span><span>Qte {item.quantity}</span><span>{money(item.unit_price)}</span><strong>{money(item.total)}</strong></div>)}<div className="grid gap-2 p-4 text-sm md:ml-auto md:w-80"><MoneyRow label="Sous-total" value={money(order.data.subtotal)} /><MoneyRow label="Remise" value={money(order.data.discount_total)} /><MoneyRow label="Livraison" value="Gratuite" /><MoneyRow label="Total" value={money(order.data.total)} strong /></div></div>
         <aside className="grid gap-6"><div className="card p-5"><h2 className="mb-3 font-heading text-xl font-bold">Client</h2><p className="font-semibold">{order.data.shipping_full_name}</p><p>{order.data.shipping_phone}</p><p>{order.data.guest_email}</p><p className="mt-3 text-slate-600">{order.data.shipping_address}, {order.data.shipping_city}</p></div><div className="card p-5"><h2 className="mb-3 font-heading text-xl font-bold">Timeline</h2><div className="grid gap-3">{order.data.status_history.map((event) => <div key={event.id} className="border-l-2 border-ocean pl-3"><strong>{statusLabel(event.to_status)}</strong><p className="text-xs text-slate-500">{new Date(event.created_at).toLocaleString('fr-MA')}</p>{event.note && <p className="text-sm text-slate-600">{event.note}</p>}</div>)}</div></div></aside>
       </div>
       {editing && <OrderEditModal order={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); order.refetch(); }} />}
     </div>
+  );
+}
+
+export function OzonSettingsAdmin() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ['ozon-settings'], queryFn: async () => (await api.get<{ customer_id: string; api_key: string; has_api_key: boolean }>('/ozon/settings/')).data });
+  const [form, setForm] = useState({ customer_id: '', api_key: '' });
+  const current = { customer_id: form.customer_id || data?.customer_id || '', api_key: form.api_key || data?.api_key || '' };
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    await api.patch('/ozon/settings/', current);
+    toast.success('Parametres Ozon enregistres');
+    setForm({ customer_id: '', api_key: '' });
+    qc.invalidateQueries({ queryKey: ['ozon-settings'] });
+  };
+  return (
+    <AdminCrudShell title="Ozon settings">
+      <form className="card grid gap-4 p-5 md:grid-cols-2" onSubmit={save}>
+        <label className="grid gap-1 font-semibold">Customer ID<input className="input" required value={current.customer_id} onChange={(event) => setForm((prev) => ({ ...prev, customer_id: event.target.value }))} /></label>
+        <label className="grid gap-1 font-semibold">API key<input className="input" required value={current.api_key} onChange={(event) => setForm((prev) => ({ ...prev, api_key: event.target.value }))} /></label>
+        <div className="md:col-span-2 flex flex-wrap items-center gap-3">
+          <button className="btn-primary"><Save className="h-4 w-4" />Enregistrer</button>
+          {data?.has_api_key && <span className="badge bg-success/10 text-success">API key configuree</span>}
+        </div>
+      </form>
+    </AdminCrudShell>
+  );
+}
+
+export function OzonParcelsAdmin() {
+  const qc = useQueryClient();
+  const [selectedCities, setSelectedCities] = useState<Record<number, { id: string; name: string }>>({});
+  const [citySearch, setCitySearch] = useState<Record<number, string>>({});
+  const [parcelOptions, setParcelOptions] = useState<Record<number, { tracking_number: string; parcel_stock: string; parcel_open: string; parcel_fragile: string; parcel_replace: string }>>({});
+  const [sending, setSending] = useState<number | null>(null);
+  const orders = useQuery({ queryKey: ['ozon-eligible-orders'], queryFn: async () => (await api.get<AdminOrder[]>('/ozon/eligible-orders/')).data });
+  const cities = useQuery({ queryKey: ['ozon-cities'], queryFn: async () => (await api.get<{ id: string; name: string }[]>('/ozon/cities/')).data });
+  const optionsFor = (orderId: number) => parcelOptions[orderId] || { tracking_number: '', parcel_stock: '0', parcel_open: '1', parcel_fragile: '0', parcel_replace: '0' };
+  const setOption = (orderId: number, key: keyof ReturnType<typeof optionsFor>, value: string) => {
+    setParcelOptions((current) => ({ ...current, [orderId]: { ...optionsFor(orderId), [key]: value } }));
+  };
+  const sendOrder = async (order: AdminOrder) => {
+    const city = selectedCities[order.id];
+    if (!city?.id) {
+      toast.error('Choisissez la ville Ozon');
+      return;
+    }
+    const options = optionsFor(order.id);
+    setSending(order.id);
+    try {
+      await api.post('/ozon/parcels/', { order_id: order.id, city_id: city.id, city_name: city.name, ...options });
+      toast.success('Colis ajoute a Ozon');
+      qc.invalidateQueries({ queryKey: ['ozon-eligible-orders'] });
+      qc.invalidateQueries({ queryKey: ['admin-orders'] });
+    } catch (error) {
+      toast.error(readApiError(error));
+    } finally {
+      setSending(null);
+    }
+  };
+  return (
+    <AdminCrudShell title="Ozon colis">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-600">Commandes sans tracking number. Recherchez la ville Ozon, ajustez les options, puis envoyez le colis.</p>
+        <Link className="btn-secondary" to="/developer/ozon-settings">Settings Ozon</Link>
+      </div>
+      <div className="card overflow-x-auto">
+        <table className="w-full min-w-[1160px] text-left text-sm">
+          <thead className="bg-mist"><tr><th className="p-3">Commande</th><th className="p-3">Client</th><th className="p-3">Telephone</th><th className="p-3">Ville client</th><th className="p-3">Total</th><th className="p-3">Ville Ozon</th><th className="p-3">Options Ozon</th><th className="p-3">Action</th></tr></thead>
+          <tbody>
+            {orders.data?.map((order) => (
+              <tr key={order.id} className="border-t">
+                <td className="p-3 font-semibold">{order.order_number}<p className="text-xs font-normal text-slate-500">{statusLabel(order.status)}</p></td>
+                <td className="p-3">{order.shipping_full_name}<p className="text-xs text-slate-500">{order.shipping_address}</p></td>
+                <td className="p-3">{order.shipping_phone}</td>
+                <td className="p-3">{order.shipping_city}</td>
+                <td className="p-3 font-semibold">{money(order.total)}</td>
+                <td className="p-3"><OzonCityPicker orderId={order.id} customerCity={order.shipping_city} cities={cities.data || []} selectedCity={selectedCities[order.id] || null} search={citySearch[order.id] || order.shipping_city || ''} onSearch={(value) => setCitySearch((prev) => ({ ...prev, [order.id]: value }))} onSelect={(city) => { setSelectedCities((prev) => ({ ...prev, [order.id]: city })); setCitySearch((prev) => ({ ...prev, [order.id]: city.name })); }} loading={cities.isLoading} /></td>
+                <td className="p-3"><OzonParcelOptions options={optionsFor(order.id)} onChange={(key, value) => setOption(order.id, key, value)} /></td>
+                <td className="p-3"><button className="btn-primary" disabled={sending === order.id} onClick={() => sendOrder(order)}><Send className="h-4 w-4" />{sending === order.id ? 'Envoi...' : 'Ajouter'}</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!orders.data?.length && <div className="p-6 text-center text-slate-500">Aucune commande eligible pour Ozon.</div>}
+      </div>
+    </AdminCrudShell>
+  );
+}
+
+function normalizeCitySearch(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
+
+function OzonCityPicker({ orderId, customerCity, cities, selectedCity, search, loading, onSearch, onSelect }: { orderId: number; customerCity: string; cities: { id: string; name: string }[]; selectedCity: { id: string; name: string } | null; search: string; loading: boolean; onSearch: (value: string) => void; onSelect: (city: { id: string; name: string }) => void }) {
+  const normalized = normalizeCitySearch(search);
+  const matches = cities
+    .filter((city) => !normalized || normalizeCitySearch(city.name).includes(normalized) || city.id.includes(normalized))
+    .slice(0, 12);
+  const listId = `ozon-cities-${orderId}`;
+  const chooseByName = (value: string) => {
+    onSearch(value);
+    const wanted = normalizeCitySearch(value);
+    const city = cities.find((item) => normalizeCitySearch(item.name) === wanted || `${item.name} - ${item.id}` === value || item.id === value);
+    if (city) onSelect(city);
+  };
+  const selectedId = selectedCity?.id || '';
+  return (
+    <div className="grid min-w-60 gap-2">
+      <input className="input" list={listId} placeholder={loading ? 'Chargement villes...' : customerCity || 'Rechercher ville'} value={search} onChange={(event) => chooseByName(event.target.value)} />
+      <datalist id={listId}>{matches.map((city) => <option key={city.id} value={city.name}>{city.id}</option>)}</datalist>
+      <select className="input" value={selectedId} onChange={(event) => {
+        const city = cities.find((item) => item.id === event.target.value);
+        if (city) onSelect(city);
+      }}>
+        <option value="">Choisir ville Ozon</option>
+        {matches.map((city) => <option key={city.id} value={city.id}>{city.name} - {city.id}</option>)}
+      </select>
+      {selectedCity && <span className="text-xs font-semibold text-slate-500">Ville envoyee: {selectedCity.name} / ID Ozon: {selectedCity.id}</span>}
+    </div>
+  );
+}
+
+type OzonParcelOptionKey = 'tracking_number' | 'parcel_stock' | 'parcel_open' | 'parcel_fragile' | 'parcel_replace';
+type OzonParcelOptionValues = Record<OzonParcelOptionKey, string>;
+
+function OzonParcelOptions({ options, onChange }: { options: OzonParcelOptionValues; onChange: (key: OzonParcelOptionKey, value: string) => void }) {
+  return (
+    <div className="grid min-w-72 gap-2 md:grid-cols-2">
+      <label className="grid gap-1 text-xs font-bold text-slate-600 md:col-span-2">Tracking custom<input className="input" placeholder="Optionnel" value={options.tracking_number} onChange={(event) => onChange('tracking_number', event.target.value)} /></label>
+      <label className="grid gap-1 text-xs font-bold text-slate-600">Stock<select className="input" value={options.parcel_stock} onChange={(event) => onChange('parcel_stock', event.target.value)}><option value="0">Ramassage</option><option value="1">Stock Ozon</option></select></label>
+      <label className="grid gap-1 text-xs font-bold text-slate-600">Ouvrir<select className="input" value={options.parcel_open} onChange={(event) => onChange('parcel_open', event.target.value)}><option value="1">Oui</option><option value="2">Non</option></select></label>
+      <label className="grid gap-1 text-xs font-bold text-slate-600">Fragile<select className="input" value={options.parcel_fragile} onChange={(event) => onChange('parcel_fragile', event.target.value)}><option value="0">Non</option><option value="1">Oui</option></select></label>
+      <label className="grid gap-1 text-xs font-bold text-slate-600">Remplacement<select className="input" value={options.parcel_replace} onChange={(event) => onChange('parcel_replace', event.target.value)}><option value="0">Non</option><option value="1">Oui</option></select></label>
+    </div>
+  );
+}
+
+type OzonTrackingData = {
+  dashboard: { total: number; open: number; shipped: number; out_for_delivery: number; delivered: number; returned: number; cancelled: number };
+  results: AdminOrder[];
+};
+
+export function OzonTrackingAdmin() {
+  const qc = useQueryClient();
+  const [syncing, setSyncing] = useState(false);
+  const tracking = useQuery({ queryKey: ['ozon-tracking'], queryFn: async () => (await api.get<OzonTrackingData>('/ozon/tracking/')).data });
+  const syncAll = async () => {
+    setSyncing(true);
+    try {
+      const { data } = await api.post<{ updated: number }>('/ozon/tracking/sync/', {});
+      toast.success(`${data.updated} commande(s) mise(s) a jour`);
+      qc.invalidateQueries({ queryKey: ['ozon-tracking'] });
+      qc.invalidateQueries({ queryKey: ['admin-orders'] });
+    } catch (error) {
+      toast.error(readApiError(error));
+    } finally {
+      setSyncing(false);
+    }
+  };
+  const dashboard = tracking.data?.dashboard;
+  return (
+    <AdminCrudShell title="Ozon tracking">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-600">Historique des commandes envoyees a Ozon, triees par derniere mise a jour.</p>
+        <button className="btn-primary" disabled={syncing} onClick={syncAll}><RotateCcw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />{syncing ? 'Tracking...' : 'Sync tracking'}</button>
+      </div>
+      <div className="mb-6 grid gap-3 md:grid-cols-4 lg:grid-cols-7">
+        <Metric icon={<PackageCheck />} label="Total Ozon" value={dashboard?.total || 0} />
+        <Metric icon={<PackageCheck />} label="Ouvertes" value={dashboard?.open || 0} />
+        <Metric icon={<Truck />} label="Expediees" value={dashboard?.shipped || 0} />
+        <Metric icon={<Truck />} label="En livraison" value={dashboard?.out_for_delivery || 0} />
+        <Metric icon={<Check />} label="Livrees" value={dashboard?.delivered || 0} />
+        <Metric icon={<RotateCcw />} label="Retournees" value={dashboard?.returned || 0} />
+        <Metric icon={<X />} label="Annulees" value={dashboard?.cancelled || 0} />
+      </div>
+      <div className="card overflow-x-auto">
+        <table className="w-full min-w-[1040px] text-left text-sm">
+          <thead className="bg-mist"><tr><th className="p-3">Date</th><th className="p-3">Commande</th><th className="p-3">Tracking</th><th className="p-3">Client</th><th className="p-3">Ville</th><th className="p-3">Total</th><th className="p-3">Statut</th><th className="p-3">History</th></tr></thead>
+          <tbody>
+            {tracking.data?.results.map((order) => (
+              <tr key={order.id} className="border-t align-top">
+                <td className="p-3">{new Date(order.created_at).toLocaleString('fr-MA')}</td>
+                <td className="p-3 font-semibold">{order.order_number}</td>
+                <td className="p-3 font-semibold text-ocean">{order.tracking_number}</td>
+                <td className="p-3">{order.shipping_full_name}<p className="text-xs text-slate-500">{order.shipping_phone}</p></td>
+                <td className="p-3">{order.shipping_city}</td>
+                <td className="p-3 font-semibold">{money(order.total)}</td>
+                <td className="p-3"><span className={`badge ${statusTone(order.status)}`}>{statusLabel(order.status)}</span></td>
+                <td className="p-3"><div className="grid gap-1">{order.status_history.slice(-3).map((event) => <p key={event.id} className="text-xs text-slate-600"><strong>{statusLabel(event.to_status)}</strong> {new Date(event.created_at).toLocaleDateString('fr-MA')}</p>)}</div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!tracking.data?.results.length && <div className="p-6 text-center text-slate-500">Aucune commande envoyee a Ozon.</div>}
+      </div>
+    </AdminCrudShell>
   );
 }
 

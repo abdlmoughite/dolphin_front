@@ -1,9 +1,9 @@
-import { CircleHelp, Clock3, Headphones, Instagram, MapPin, MessageCircle, Search, ShieldCheck, Tag, TrendingUp, Truck, WalletCards, Wand2 } from 'lucide-react';
+import { CircleHelp, Clock3, Headphones, Instagram, MapPin, MessageCircle, Search, ShieldCheck, Tag, TrendingUp, Truck, WalletCards, Wand2, type LucideIcon } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { api, Brand, Category, HomepageBanner, HomeSection, mediaUrl, Paginated, Product } from '../lib/api';
+import { api, Brand, Category, HomeDesignSettings, HomepageBanner, HomeSection, mediaUrl, Paginated, Product } from '../lib/api';
 import { productQueryKeys } from '../lib/queryKeys';
 import { ProductCard } from '../components/ProductCard';
 import { EmptyState, LoadingGrid } from '../components/States';
@@ -14,7 +14,17 @@ export function HomePage() {
   const homeSections = useQuery({ queryKey: ['home-sections'], queryFn: async () => (await api.get<Paginated<HomeSection>>('/home-sections/?public=true')).data });
   const categories = useQuery({ queryKey: ['categories'], queryFn: async () => (await api.get<Paginated<Category>>('/categories/?is_active=true')).data });
   const banners = useQuery({ queryKey: ['banners'], queryFn: async () => (await api.get<Paginated<HomepageBanner>>('/banners/')).data });
+  const design = useQuery({ queryKey: ['home-design'], queryFn: async () => (await api.get<HomeDesignSettings>('/settings/design/')).data });
   const banner = banners.data?.results?.[0];
+  const settings = design.data;
+  const primaryColor = settings?.primary_color || '#0077B6';
+  const accentColor = settings?.accent_color || '#FF6B4A';
+  const trustItems = [settings?.trust_1, settings?.trust_2, settings?.trust_3].filter(Boolean);
+  const services: { title: string; text: string; Icon: LucideIcon }[] = [
+    { title: settings?.service_1_title || 'Livraison gratuite', text: settings?.service_1_text || 'Pourquoi choisir DOLPHIN: prix clairs, suivi commande et service client en francais.', Icon: Truck },
+    { title: settings?.service_2_title || 'Paiement securise', text: settings?.service_2_text || 'Pourquoi choisir DOLPHIN: prix clairs, suivi commande et service client en francais.', Icon: WalletCards },
+    { title: settings?.service_3_title || 'Support verifie', text: settings?.service_3_text || 'Pourquoi choisir DOLPHIN: prix clairs, suivi commande et service client en francais.', Icon: ShieldCheck },
+  ];
   const subscribe = async (event: FormEvent) => {
     event.preventDefault();
     await api.post('/newsletter/subscribe/', { email });
@@ -26,12 +36,12 @@ export function HomePage() {
       <section className="wave px-4 py-12 md:py-16">
         <div className="mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[1.05fr_.95fr]">
           <div>
-            <p className="mb-3 inline-flex rounded-full bg-ocean/10 px-3 py-1 text-sm font-bold text-ocean">Marketplace multi-categories au Maroc</p>
-            <h1 className="font-heading text-4xl font-extrabold leading-tight text-navy md:text-6xl">{banner?.title.replace('Demo | ', '') || 'DOLPHIN'}</h1>
-            <p className="mt-4 max-w-2xl text-lg text-slate-700">{banner?.subtitle || "Tout ce qu'il vous faut, au meme endroit. Produits selectionnes, promotions claires, livraison gratuite."}</p>
-            <div className="mt-6 flex flex-wrap gap-3"><Link className="btn-primary" to={banner?.cta_url || '/catalogue'}>{banner?.cta_label || 'Decouvrir les produits'}</Link><Link className="btn-secondary" to="/catalogue?promotion=true">Voir les offres</Link></div>
+            <p className="mb-3 inline-flex rounded-full px-3 py-1 text-sm font-bold" style={{ backgroundColor: `${primaryColor}1A`, color: primaryColor }}>{settings?.hero_eyebrow || 'Marketplace multi-categories au Maroc'}</p>
+            <h1 className="font-heading text-4xl font-extrabold leading-tight text-navy md:text-6xl">{settings?.hero_title || banner?.title.replace('Demo | ', '') || 'DOLPHIN'}</h1>
+            <p className="mt-4 max-w-2xl text-lg text-slate-700">{settings?.hero_subtitle || banner?.subtitle || "Tout ce qu'il vous faut, au meme endroit. Produits selectionnes, promotions claires, livraison gratuite."}</p>
+            <div className="mt-6 flex flex-wrap gap-3"><Link className="btn-primary" style={{ backgroundColor: primaryColor }} to={settings?.primary_cta_url || banner?.cta_url || '/catalogue'}>{settings?.primary_cta_label || banner?.cta_label || 'Decouvrir les produits'}</Link><Link className="btn-secondary" style={{ color: primaryColor, boxShadow: `inset 0 0 0 1px ${primaryColor}59` }} to={settings?.secondary_cta_url || '/catalogue?promotion=true'}>{settings?.secondary_cta_label || 'Voir les offres'}</Link></div>
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              {['Variantes disponibles', 'Paiement livraison', 'Retours suivis'].map((item) => <div key={item} className="panel p-4 text-sm font-bold text-navy">{item}</div>)}
+              {(trustItems.length ? trustItems : ['Variantes disponibles', 'Paiement livraison', 'Retours suivis']).map((item) => <div key={item} className="panel p-4 text-sm font-bold text-navy">{item}</div>)}
             </div>
           </div>
           <div className="overflow-hidden rounded-[24px] bg-white shadow-xl ring-1 ring-slate-200">
@@ -46,10 +56,10 @@ export function HomePage() {
       {(homeSections.data?.results || []).map((section) => <ProductShelf key={section.key} section={section} isLoading={homeSections.isLoading} isError={homeSections.isError} onRetry={() => homeSections.refetch()} />)}
       <section className="bg-white px-4 py-12">
         <div className="mx-auto grid max-w-7xl gap-4 md:grid-cols-3">
-          {[['Livraison gratuite', Truck], ['Paiement securise', WalletCards], ['Support verifie', ShieldCheck]].map(([label, Icon]) => <div key={String(label)} className="rounded-dolphin border border-slate-200 p-5"><Icon className="mb-3 text-ocean" /><h3 className="font-heading text-lg font-bold">{String(label)}</h3><p className="text-slate-600">Pourquoi choisir DOLPHIN: prix clairs, suivi commande et service client en francais.</p></div>)}
+          {services.map(({ title, text, Icon }) => <div key={title} className="rounded-dolphin border border-slate-200 p-5"><Icon className="mb-3" style={{ color: accentColor }} /><h3 className="font-heading text-lg font-bold">{title}</h3><p className="text-slate-600">{text}</p></div>)}
         </div>
       </section>
-      <section className="mx-auto max-w-7xl px-4 py-12"><div className="card grid gap-4 p-6 md:grid-cols-[1fr_auto]"><div><h2 className="font-heading text-2xl font-bold">Newsletter</h2><p className="text-slate-600">Recevez les nouveautes et promotions publiees par Dolphin.</p></div><form className="flex gap-2" onSubmit={subscribe}><label className="sr-only">Email newsletter</label><input className="input" type="email" placeholder="email@exemple.com" value={email} onChange={(event) => setEmail(event.target.value)} required /><button className="btn-primary">S'inscrire</button></form></div></section>
+      <section className="mx-auto max-w-7xl px-4 py-12"><div className="card grid gap-4 p-6 md:grid-cols-[1fr_auto]"><div><h2 className="font-heading text-2xl font-bold">{settings?.newsletter_title || 'Newsletter'}</h2><p className="text-slate-600">{settings?.newsletter_subtitle || 'Recevez les nouveautes et promotions publiees par Dolphin.'}</p></div><form className="flex gap-2" onSubmit={subscribe}><label className="sr-only">Email newsletter</label><input className="input" type="email" placeholder="email@exemple.com" value={email} onChange={(event) => setEmail(event.target.value)} required /><button className="btn-primary" style={{ backgroundColor: primaryColor }}>S'inscrire</button></form></div></section>
     </>
   );
 }

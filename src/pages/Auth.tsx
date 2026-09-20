@@ -20,7 +20,7 @@ export function LoginPage() {
   const login = useAuth((s) => s.login);
   const navigate = useNavigate();
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<z.infer<typeof loginSchema>>({ resolver: zodResolver(loginSchema) });
-  return <AuthShell title="Connexion"><form className="grid gap-4" onSubmit={handleSubmit((v) => login(v.email, v.password).then((user) => { toast.success('Bienvenue'); navigate(user.role === 'CUSTOMER' ? '/compte' : user.role === 'SUPER_ADMIN' ? '/developer' : '/admin/dashboard'); }))}><label className="grid gap-1 font-semibold">Email<input className="input" placeholder="Email" {...register('email')} /></label><label className="grid gap-1 font-semibold">Mot de passe<input className="input" type="password" placeholder="Mot de passe" {...register('password')} /></label>{errors.email && <span className="text-sm text-coral">Email invalide</span>}<button className="btn-primary" disabled={isSubmitting}>Se connecter</button></form></AuthShell>;
+  return <AuthShell title="Connexion"><form className="grid gap-4" onSubmit={handleSubmit((v) => login(v.email, v.password).then((user) => { toast.success('Bienvenue'); navigate(user.role === 'CUSTOMER' ? '/compte' : '/developer'); }))}><label className="grid gap-1 font-semibold">Email<input className="input" placeholder="Email" {...register('email')} /></label><label className="grid gap-1 font-semibold">Mot de passe<input className="input" type="password" placeholder="Mot de passe" {...register('password')} /></label>{errors.email && <span className="text-sm text-coral">Email invalide</span>}<button className="btn-primary" disabled={isSubmitting}>Se connecter</button></form></AuthShell>;
 }
 
 export function RegisterPage() {
