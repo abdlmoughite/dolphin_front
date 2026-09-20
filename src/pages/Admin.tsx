@@ -1138,7 +1138,8 @@ export function OzonTrackingAdmin() {
   );
 }
 
-type ResourceField = { key: string; label: string; type?: 'text' | 'number' | 'date' | 'datetime-local' | 'checkbox' | 'select'; options?: string[]; required?: boolean };
+type ResourceField = { key: string; label: string; type?: 'text' | 'number' | 'date' | 'datetime-local' | 'checkbox' | 'select' | 'image'; options?: string[]; required?: boolean };
+type ResourceFormValue = string | number | boolean | File | null;
 type ResourceRow = Record<string, string | number | boolean | string[] | null | undefined> & { id: number };
 
 const couponFields: ResourceField[] = [
@@ -1171,6 +1172,7 @@ const deliveryZoneFields: ResourceField[] = [
 const bannerFields: ResourceField[] = [
   { key: 'title', label: 'Titre', required: true },
   { key: 'subtitle', label: 'Sous-titre' },
+  { key: 'image', label: 'Photo principale', type: 'image' },
   { key: 'cta_label', label: 'CTA' },
   { key: 'cta_url', label: 'URL CTA' },
   { key: 'starts_at', label: 'Debut', type: 'datetime-local' },
@@ -1194,10 +1196,11 @@ const expenseFields: ResourceField[] = [
 ];
 
 function emptyForm(fields: ResourceField[]) {
-  return Object.fromEntries(fields.map((field) => [field.key, field.type === 'checkbox' ? true : '']));
+  return Object.fromEntries(fields.map((field) => [field.key, field.type === 'checkbox' ? true : field.type === 'image' ? null : '']));
 }
 
 function formValue(field: ResourceField, value: ResourceRow[keyof ResourceRow]) {
+  if (field.type === 'image') return null;
   if (field.type === 'datetime-local') return toInputDate(value);
   if (field.type === 'checkbox') return Boolean(value);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
@@ -1211,12 +1214,16 @@ function ResourceAdmin({ title, endpoint, fields }: { title: string; endpoint: s
   const [deleting, setDeleting] = useState<ResourceRow | null>(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [form, setForm] = useState<Record<string, string | boolean | number>>(emptyForm(fields));
+  const [form, setForm] = useState<Record<string, ResourceFormValue>>(emptyForm(fields));
   const listUrl = endpointWithParams(endpoint, { search, page: String(page) });
   const query = useQuery({ queryKey: ['resource', endpoint, search, page], queryFn: async () => (await api.get<Paginated<ResourceRow>>(listUrl)).data });
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    const payload = Object.fromEntries(fields.map((field) => [field.key, normalizeField(field, form[field.key])]));
+    const hasFile = fields.some((field) => field.type === 'image' && form[field.key] instanceof File);
+    const normalizedEntries = fields
+      .map((field) => [field.key, normalizeField(field, form[field.key])] as const)
+      .filter(([, value]) => value !== undefined);
+    const payload = hasFile ? toFormData(normalizedEntries) : Object.fromEntries(normalizedEntries);
     if (editing) {
       await api.patch(`${endpoint}${editing.id}/`, payload);
     } else {
@@ -1234,7 +1241,7 @@ function ResourceAdmin({ title, endpoint, fields }: { title: string; endpoint: s
   return (
     <AdminCrudShell title={title}>
       <form className="card mb-6 grid gap-3 p-4 md:grid-cols-3" onSubmit={save}>
-        {fields.map((field) => <FieldInput key={field.key} field={field} value={form[field.key]} onChange={(value) => setForm((current) => ({ ...current, [field.key]: value }))} />)}
+        {fields.map((field) => <FieldInput key={field.key} field={field} value={form[field.key]} currentImage={editing?.[field.key]} onChange={(value) => setForm((current) => ({ ...current, [field.key]: value }))} />)}
         <div className="flex gap-2"><button className="btn-primary"><Save className="h-4 w-4" />Enregistrer</button>{editing && <button type="button" className="btn-secondary" onClick={() => { setEditing(null); setForm(emptyForm(fields)); }}>Annuler</button>}</div>
       </form>
       <div className="mb-4 max-w-sm"><SearchInput value={search} onChange={(value) => { setSearch(value); setPage(1); }} placeholder={`Rechercher dans ${title.toLowerCase()}`} /></div>
@@ -1245,16 +1252,34 @@ function ResourceAdmin({ title, endpoint, fields }: { title: string; endpoint: s
   );
 }
 
-function FieldInput({ field, value, onChange }: { field: ResourceField; value: string | number | boolean | undefined; onChange: (value: string | number | boolean) => void }) {
+function FieldInput({ field, value, currentImage, onChange }: { field: ResourceField; value: ResourceFormValue | undefined; currentImage?: ResourceRow[keyof ResourceRow]; onChange: (value: ResourceFormValue) => void }) {
   if (field.type === 'checkbox') return <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} />{field.label}</label>;
   if (field.type === 'select') return <label className="grid gap-1 font-semibold">{field.label}<select required={field.required} className="input" value={String(value || '')} onChange={(event) => onChange(event.target.value)}><option value="">Choisir</option>{field.options?.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>;
+  if (field.type === 'image') return (
+    <label className="grid gap-2 font-semibold">
+      {field.label}
+      {typeof currentImage === 'string' && currentImage && <img className="h-24 w-40 rounded-dolphin object-cover ring-1 ring-slate-200" src={mediaUrl(currentImage)} alt={field.label} />}
+      <input className="input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => onChange(event.target.files?.[0] || null)} />
+      {value instanceof File && <span className="text-sm font-medium text-slate-500">{value.name}</span>}
+    </label>
+  );
   return <label className="grid gap-1 font-semibold">{field.label}<input required={field.required} className="input" type={field.type || 'text'} step={field.type === 'number' ? '0.01' : undefined} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
-function normalizeField(field: ResourceField, value: string | number | boolean | undefined) {
+function normalizeField(field: ResourceField, value: ResourceFormValue | undefined) {
+  if (field.type === 'image') return value instanceof File ? value : undefined;
   if (field.type === 'number') return value === '' || value === undefined ? null : value;
   if (field.type === 'datetime-local') return value ? new Date(String(value)).toISOString() : null;
   return value;
+}
+
+function toFormData(entries: readonly (readonly [string, ResourceFormValue | undefined])[]) {
+  const data = new FormData();
+  entries.forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    data.append(key, value instanceof File ? value : String(value));
+  });
+  return data;
 }
 
 function toInputDate(value: unknown) {
@@ -1280,6 +1305,7 @@ function endpointWithParams(endpoint: string, params: Record<string, string>) {
 
 function formatCell(value: unknown) {
   if (typeof value === 'boolean') return value ? 'Oui' : 'Non';
+  if (typeof value === 'string' && /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(value)) return <img className="h-12 w-20 rounded-dolphin object-cover ring-1 ring-slate-200" src={mediaUrl(value)} alt="" />;
   if (typeof value === 'string' && value.includes('T')) return new Date(value).toLocaleString('fr-MA');
   return String(value ?? '');
 }

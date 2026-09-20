@@ -1,10 +1,10 @@
-import { Activity, BarChart3, Bell, CalendarDays, Check, Download, Edit, FileClock, Gauge, Info, LayoutDashboard, MapPin, Package, Percent, RefreshCw, Save, Search, Send, Settings, Shield, ShoppingBag, Tag, Truck, Users, X } from 'lucide-react';
+import { Activity, BarChart3, Bell, CalendarDays, Check, Download, Edit, FileClock, Gauge, Image as ImageIcon, Info, LayoutDashboard, MapPin, Package, Percent, RefreshCw, Save, Search, Send, Settings, Shield, ShoppingBag, Tag, Trash2, Truck, Users, X } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api, Category, downloadFile, HomeDesignSettings, Paginated, Product, User } from '../lib/api';
+import { api, Category, downloadFile, HomeDesignSettings, HomepageBanner, mediaUrl, Paginated, Product, User } from '../lib/api';
 import { money } from '../lib/i18n';
 import { BrandsAdmin, CategoriesAdmin, HomeSectionsAdmin, OrdersAdmin, OzonParcelsAdmin, OzonSettingsAdmin, OzonTrackingAdmin, ProductsAdmin, StaffAdmin } from './Admin';
 
@@ -98,6 +98,7 @@ type DeveloperAnalytics = {
   };
 };
 type ExpenseRow = { id: number; category: string; amount: string; date: string; supplier?: number | null; reference: string; receipt?: string | null; notes: string; created_by_email?: string };
+type BannerForm = { title: string; subtitle: string; cta_label: string; cta_url: string; is_active: boolean; image: File | null };
 
 const sections = [
   ['dashboard', 'Dashboard', LayoutDashboard],
@@ -105,6 +106,7 @@ const sections = [
   ['categories', 'Categories', Tag],
   ['brands', 'Marques', Tag],
   ['home-design', 'Home design', Settings],
+  ['banners', 'Bannieres', ImageIcon],
   ['orders', 'Commandes', ShoppingBag],
   ['ozon-parcels', 'Ozon colis', Send],
   ['ozon-tracking', 'Ozon tracking', Truck],
@@ -141,6 +143,7 @@ function DeveloperSection({ section }: { section: string }) {
   if (section === 'categories') return <CategoriesAdmin />;
   if (section === 'brands') return <BrandsAdmin />;
   if (section === 'home-design') return <DeveloperHomeDesign />;
+  if (section === 'banners') return <DeveloperBanners />;
   if (section === 'orders') return <OrdersAdmin />;
   if (section === 'ozon-parcels') return <OzonParcelsAdmin />;
   if (section === 'ozon-tracking') return <OzonTrackingAdmin />;
@@ -232,6 +235,88 @@ function DeveloperHomeDesign() {
       </form>
     </div>
   );
+}
+
+function DeveloperBanners() {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<HomepageBanner | null>(null);
+  const [form, setForm] = useState<BannerForm>(() => emptyBannerForm());
+  const banners = useQuery({ queryKey: ['developer-banners'], queryFn: async () => (await api.get<Paginated<HomepageBanner>>('/banners/')).data });
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const payload = new FormData();
+    payload.append('title', form.title);
+    payload.append('subtitle', form.subtitle);
+    payload.append('cta_label', form.cta_label);
+    payload.append('cta_url', form.cta_url);
+    payload.append('is_active', String(form.is_active));
+    if (form.image) payload.append('image', form.image);
+    if (editing) {
+      await api.patch(`/banners/${editing.id}/`, payload);
+    } else {
+      await api.post('/banners/', payload);
+    }
+    toast.success('Banniere mise a jour');
+    setEditing(null);
+    setForm(emptyBannerForm());
+    qc.invalidateQueries({ queryKey: ['developer-banners'] });
+    qc.invalidateQueries({ queryKey: ['banners'] });
+  };
+  const edit = (banner: HomepageBanner) => {
+    setEditing(banner);
+    setForm({ title: banner.title, subtitle: banner.subtitle || '', cta_label: banner.cta_label || '', cta_url: banner.cta_url || '', is_active: banner.is_active ?? true, image: null });
+  };
+  const remove = async (banner: HomepageBanner) => {
+    await api.delete(`/banners/${banner.id}/`);
+    toast.success('Banniere supprimee');
+    if (editing?.id === banner.id) {
+      setEditing(null);
+      setForm(emptyBannerForm());
+    }
+    qc.invalidateQueries({ queryKey: ['developer-banners'] });
+    qc.invalidateQueries({ queryKey: ['banners'] });
+  };
+  return (
+    <ResourcePage title="Bannieres homepage">
+      <div className="grid gap-6">
+        <form className="card grid gap-4 p-5" onSubmit={save}>
+          <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="grid gap-1 font-semibold">Titre<input className="input" required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label>
+              <label className="grid gap-1 font-semibold">CTA<input className="input" value={form.cta_label} onChange={(e) => setForm({ ...form, cta_label: e.target.value })} /></label>
+              <label className="grid gap-1 font-semibold md:col-span-2">Sous-titre<textarea className="input min-h-24" value={form.subtitle} onChange={(e) => setForm({ ...form, subtitle: e.target.value })} /></label>
+              <label className="grid gap-1 font-semibold">URL CTA<input className="input" value={form.cta_url} onChange={(e) => setForm({ ...form, cta_url: e.target.value })} /></label>
+              <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />Actif</label>
+              <label className="grid gap-1 font-semibold md:col-span-2">Photo homepage<input className="input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setForm({ ...form, image: e.target.files?.[0] || null })} /></label>
+            </div>
+            <div className="grid gap-3">
+              <div className="aspect-[4/3] overflow-hidden rounded-dolphin bg-mist ring-1 ring-slate-200">
+                {form.image ? <img className="h-full w-full object-cover" src={URL.createObjectURL(form.image)} alt={form.image.name} /> : editing?.image ? <img className="h-full w-full object-cover" src={mediaUrl(editing.image)} alt={editing.title} /> : <div className="grid h-full place-items-center text-center font-heading text-xl font-bold text-ocean">Photo homepage</div>}
+              </div>
+              {form.image && <p className="text-sm font-semibold text-slate-500">{form.image.name}</p>}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button className="btn-primary"><Save className="h-4 w-4" />{editing ? 'Modifier' : 'Creer'} banniere</button>
+            {editing && <button type="button" className="btn-secondary" onClick={() => { setEditing(null); setForm(emptyBannerForm()); }}>Annuler</button>}
+          </div>
+        </form>
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="bg-mist"><tr><th className="p-3">Photo</th><th className="p-3">Titre</th><th className="p-3">CTA</th><th className="p-3">Statut</th><th className="p-3">Actions</th></tr></thead>
+              <tbody>{banners.data?.results.map((banner) => <tr key={banner.id} className="border-t"><td className="p-3">{banner.image ? <img className="h-14 w-24 rounded-dolphin object-cover ring-1 ring-slate-200" src={mediaUrl(banner.image)} alt={banner.title} /> : <div className="h-14 w-24 rounded-dolphin bg-mist" />}</td><td className="p-3"><strong>{banner.title}</strong><p className="text-xs text-slate-500">{banner.subtitle || '-'}</p></td><td className="p-3">{banner.cta_label || '-'}</td><td className="p-3"><span className={`badge ${banner.is_active ? 'bg-ocean/10 text-ocean' : 'bg-slate-200 text-slate-600'}`}>{banner.is_active ? 'Active' : 'Inactive'}</span></td><td className="flex gap-2 p-3"><button className="btn-secondary" onClick={() => edit(banner)}><Edit className="h-4 w-4" />Modifier</button><button className="btn-secondary text-coral" onClick={() => remove(banner)}><Trash2 className="h-4 w-4" />Supprimer</button></td></tr>)}</tbody>
+            </table>
+          </div>
+          {!banners.data?.results.length && <div className="p-6 text-center text-slate-500">Aucune banniere. Ajoutez une photo pour remplacer le bloc Offres flash DOLPHIN.</div>}
+        </div>
+      </div>
+    </ResourcePage>
+  );
+}
+
+function emptyBannerForm(): BannerForm {
+  return { title: 'Offres flash DOLPHIN', subtitle: '', cta_label: 'Voir les offres', cta_url: '/catalogue?promotion=true', is_active: true, image: null };
 }
 
 function DeveloperDashboard() {
