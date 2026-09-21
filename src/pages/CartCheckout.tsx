@@ -3,10 +3,9 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { api, downloadFile, mediaUrl, Order, Paginated, readApiError } from '../lib/api';
+import { api, downloadFile, mediaUrl, Order, readApiError } from '../lib/api';
 import { money } from '../lib/i18n';
 import { useCart } from '../stores/cart';
 import { EmptyState, PageHeader, StatCard } from '../components/ui';
@@ -109,21 +108,15 @@ export function CheckoutFormPanel({ onSubmitted }: { onSubmitted?: () => void })
   const navigate = useNavigate();
   const { cart, load, setCheckoutOpen } = useCart();
   const [failed, setFailed] = useState('');
-  const { data: zones } = useQuery({ queryKey: ['zones'], queryFn: async () => (await api.get<Paginated<{ id: number; city: string }>>('/delivery-zones/?is_active=true')).data });
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<CheckoutForm>({ resolver: zodResolver(schema), defaultValues: { payment_method: 'COD' } });
   const submit = async (values: CheckoutForm) => {
     setFailed('');
     const typedCity = values.shipping_city.trim();
-    const zone = zones?.results[0];
-    if (!zone) {
-      setFailed('La commande n a pas pu etre creee. Aucune zone de livraison active.');
-      return;
-    }
     const idempotency_key = sessionStorage.getItem('dolphin_checkout_key') || crypto.randomUUID();
     sessionStorage.setItem('dolphin_checkout_key', idempotency_key);
     try {
       const guestEmail = `${values.shipping_phone.replace(/\D/g, '') || 'client'}@checkout.dolphin.local`;
-      const { data } = await api.post<Order>('/checkout/', { ...values, guest_email: guestEmail, delivery_zone_id: zone.id, idempotency_key, shipping_city: typedCity });
+      const { data } = await api.post<Order>('/checkout/', { ...values, guest_email: guestEmail, idempotency_key, shipping_city: typedCity });
       sessionStorage.setItem(`dolphin_invoice_key_${data.id}`, data.idempotency_key || idempotency_key);
       sessionStorage.removeItem('dolphin_checkout_key');
       toast.success('Commande creee');
