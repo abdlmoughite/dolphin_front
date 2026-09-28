@@ -1,43 +1,63 @@
 import { Navigate, RouterProvider, createBrowserRouter } from 'react-router-dom';
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { StoreLayout } from './components/Layout';
 import { useAuth } from './stores/auth';
 import { useCart } from './stores/cart';
-import { CartPage, CheckoutPage, ConfirmationPage } from './pages/CartCheckout';
-import { CatalogPage, ProductDetailsPage } from './pages/Catalog';
-import { BrandsPage, HelpPage, HomePage, NewArrivalsPage, PromotionsPage, SimplePage } from './pages/Home';
-import { DeveloperPage } from './pages/Developer';
-import { LoginPage, PasswordResetPage, RegisterPage, UnauthorizedPage } from './pages/Auth';
-import { CustomerDashboard } from './pages/Customer';
+
+const HomePage = lazy(() => import('./pages/Home').then((module) => ({ default: module.HomePage })));
+const PromotionsPage = lazy(() => import('./pages/Home').then((module) => ({ default: module.PromotionsPage })));
+const NewArrivalsPage = lazy(() => import('./pages/Home').then((module) => ({ default: module.NewArrivalsPage })));
+const BrandsPage = lazy(() => import('./pages/Home').then((module) => ({ default: module.BrandsPage })));
+const HelpPage = lazy(() => import('./pages/Home').then((module) => ({ default: module.HelpPage })));
+const SimplePage = lazy(() => import('./pages/Home').then((module) => ({ default: module.SimplePage })));
+const CatalogPage = lazy(() => import('./pages/Catalog').then((module) => ({ default: module.CatalogPage })));
+const ProductDetailsPage = lazy(() => import('./pages/Catalog').then((module) => ({ default: module.ProductDetailsPage })));
+const CartPage = lazy(() => import('./pages/CartCheckout').then((module) => ({ default: module.CartPage })));
+const CheckoutPage = lazy(() => import('./pages/CartCheckout').then((module) => ({ default: module.CheckoutPage })));
+const ConfirmationPage = lazy(() => import('./pages/CartCheckout').then((module) => ({ default: module.ConfirmationPage })));
+const DeveloperPage = lazy(() => import('./pages/Developer').then((module) => ({ default: module.DeveloperPage })));
+const LoginPage = lazy(() => import('./pages/Auth').then((module) => ({ default: module.LoginPage })));
+const RegisterPage = lazy(() => import('./pages/Auth').then((module) => ({ default: module.RegisterPage })));
+const PasswordResetPage = lazy(() => import('./pages/Auth').then((module) => ({ default: module.PasswordResetPage })));
+const UnauthorizedPage = lazy(() => import('./pages/Auth').then((module) => ({ default: module.UnauthorizedPage })));
+const CustomerDashboard = lazy(() => import('./pages/Customer').then((module) => ({ default: module.CustomerDashboard })));
+
+function PageLoader() {
+  return <div className="grid min-h-[50vh] place-items-center bg-mist text-sm font-semibold text-slate-600">Chargement...</div>;
+}
+
+function LazyPage({ children }: { children: JSX.Element }) {
+  return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
+}
 
 function Protected({ children, developer = false }: { children: JSX.Element; developer?: boolean }) {
   const { user, booted } = useAuth();
   if (!booted) return <div className="grid min-h-screen place-items-center bg-mist text-sm font-semibold text-slate-600">Chargement de la session...</div>;
   if (!user) return <Navigate to="/connexion" replace />;
   if (developer && user.role !== 'SUPER_ADMIN') return <Navigate to="/unauthorized" replace />;
-  return children;
+  return <LazyPage>{children}</LazyPage>;
 }
 
 const router = createBrowserRouter([
   {
     element: <StoreLayout />,
     children: [
-      { path: '/', element: <HomePage /> },
-      { path: '/catalogue', element: <CatalogPage /> },
-      { path: '/produit/:slug', element: <ProductDetailsPage /> },
-      { path: '/panier', element: <CartPage /> },
-      { path: '/checkout', element: <CheckoutPage /> },
-      { path: '/confirmation/:id', element: <ConfirmationPage /> },
-      { path: '/connexion', element: <LoginPage /> },
-      { path: '/inscription', element: <RegisterPage /> },
-      { path: '/mot-de-passe-oublie', element: <PasswordResetPage /> },
-      { path: '/unauthorized', element: <UnauthorizedPage /> },
+      { path: '/', element: <LazyPage><HomePage /></LazyPage> },
+      { path: '/catalogue', element: <LazyPage><CatalogPage /></LazyPage> },
+      { path: '/produit/:slug', element: <LazyPage><ProductDetailsPage /></LazyPage> },
+      { path: '/panier', element: <LazyPage><CartPage /></LazyPage> },
+      { path: '/checkout', element: <LazyPage><CheckoutPage /></LazyPage> },
+      { path: '/confirmation/:id', element: <LazyPage><ConfirmationPage /></LazyPage> },
+      { path: '/connexion', element: <LazyPage><LoginPage /></LazyPage> },
+      { path: '/inscription', element: <LazyPage><RegisterPage /></LazyPage> },
+      { path: '/mot-de-passe-oublie', element: <LazyPage><PasswordResetPage /></LazyPage> },
+      { path: '/unauthorized', element: <LazyPage><UnauthorizedPage /></LazyPage> },
       { path: '/compte/*', element: <Protected><CustomerDashboard /></Protected> },
-      { path: '/promotions', element: <PromotionsPage /> },
-      { path: '/nouveautes', element: <NewArrivalsPage /> },
-      { path: '/marques', element: <BrandsPage /> },
-      { path: '/faq', element: <HelpPage /> },
-      { path: '*', element: <SimplePage title="Page introuvable" /> },
+      { path: '/promotions', element: <LazyPage><PromotionsPage /></LazyPage> },
+      { path: '/nouveautes', element: <LazyPage><NewArrivalsPage /></LazyPage> },
+      { path: '/marques', element: <LazyPage><BrandsPage /></LazyPage> },
+      { path: '/faq', element: <LazyPage><HelpPage /></LazyPage> },
+      { path: '*', element: <LazyPage><SimplePage title="Page introuvable" /></LazyPage> },
     ],
   },
   { path: '/developer', element: <Protected developer><DeveloperPage /></Protected> },

@@ -112,6 +112,7 @@ export type Product = {
   current_price: string;
   discount_percent: number;
   status: string;
+  is_sold_out: boolean;
   source_type: string;
   featured: boolean;
   new_arrival: boolean;
@@ -134,6 +135,7 @@ export type HomeDesignSettings = {
   announcement_text: string;
   announcement_bg_color: string;
   announcement_text_color: string;
+  announcement_scroll_direction: 'none' | 'ltr' | 'rtl';
   hero_eyebrow: string;
   hero_title: string;
   hero_subtitle: string;

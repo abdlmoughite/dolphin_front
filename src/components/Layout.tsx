@@ -1,12 +1,13 @@
 import { Instagram, Menu, MessageCircle, Search, ShoppingCart, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { FormEvent, ReactNode, useState } from 'react';
+import { FormEvent, ReactNode, Suspense, lazy, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import logo from '../assets/dolphin-logo.jpeg';
-import { CheckoutFormPanel } from '../pages/CartCheckout';
 import { api, HomeDesignSettings } from '../lib/api';
 import { useAuth } from '../stores/auth';
 import { useCart } from '../stores/cart';
+
+const CheckoutFormPanel = lazy(() => import('../pages/CartCheckout').then((module) => ({ default: module.CheckoutFormPanel })));
 
 const nav = [
   ['Accueil', '/'],
@@ -24,6 +25,7 @@ export function StoreLayout() {
   const navigate = useNavigate();
   const cartCount = cart?.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
   const announcement = design.data?.announcement_text || 'Livraison gratuite partout au Maroc';
+  const announcementDirection = design.data?.announcement_scroll_direction || 'none';
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
     navigate(`/catalogue${search.trim() ? `?search=${encodeURIComponent(search.trim())}` : ''}`);
@@ -31,7 +33,14 @@ export function StoreLayout() {
   };
   return (
     <div className="min-h-screen bg-[#f6fbfd]">
-      {announcement && <div className="px-4 py-2 text-center text-sm font-bold" style={{ backgroundColor: design.data?.announcement_bg_color || '#FF6B4A', color: design.data?.announcement_text_color || '#FFFFFF' }}>{announcement}</div>}
+      {announcement && (
+        <div className="announcement-bar" style={{ backgroundColor: design.data?.announcement_bg_color || '#FF6B4A', color: design.data?.announcement_text_color || '#FFFFFF' }}>
+          <div className={announcementDirection === 'none' ? 'announcement-static' : `announcement-track announcement-${announcementDirection}`}>
+            <span>{announcement}</span>
+            {announcementDirection !== 'none' && <span aria-hidden="true">{announcement}</span>}
+          </div>
+        </div>
+      )}
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
           <button className="md:hidden" onClick={() => setOpen(true)} aria-label="Ouvrir le menu"><Menu /></button>
@@ -89,7 +98,9 @@ function CheckoutSidePanel({ open, onClose }: { open: boolean; onClose: () => vo
           <button className="rounded-full p-2 text-navy hover:bg-mist" onClick={onClose} aria-label="Fermer"><X /></button>
         </div>
         <div className="overflow-y-auto p-4">
-          <CheckoutFormPanel onSubmitted={onClose} />
+          <Suspense fallback={<div className="skeleton h-72" />}>
+            <CheckoutFormPanel onSubmitted={onClose} />
+          </Suspense>
         </div>
       </aside>
     </div>

@@ -3,13 +3,13 @@ import { FormEvent, ReactNode, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, Brand, Category, downloadFile, HomeSection, mediaUrl, Paginated, Product, readApiError } from '../lib/api';
 import { money } from '../lib/i18n';
 import { invalidateProductQueries, productQueryKeys } from '../lib/queryKeys';
 import { Breadcrumb, ConfirmDialog, EmptyState, ErrorState, FormField, ImageUploader, Pagination, SearchInput, SelectField, StatusBadge } from '../components/ui';
 import { adminPages, allAdminPageKeys, canAccessAdminPage } from '../lib/adminPermissions';
 import { useAuth } from '../stores/auth';
+import { SalesAreaChart } from '../components/SalesAreaChart';
 
 type VariantForm = { id?: number; sku: string; color: string; size: string; capacity: string; price_override?: string };
 type ProductForm = {
@@ -23,6 +23,7 @@ type ProductForm = {
   short_description: string;
   description: string;
   status: string;
+  is_sold_out: boolean;
   featured: boolean;
   new_arrival: boolean;
   bestseller: boolean;
@@ -74,7 +75,7 @@ export function AdminDashboard() {
         <Metric icon={<Users />} label="En attente" value={data?.pending_orders || 0} />
         <Metric icon={<PackageCheck />} label="Produits actifs" value={data?.active_products || 0} />
       </div>
-      <div className="card mt-6 h-80 p-4"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chart}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="day" /><YAxis /><Tooltip /><Area type="monotone" dataKey="ventes" stroke="#0077B6" fill="#48CAE4" /></AreaChart></ResponsiveContainer></div>
+      <div className="card mt-6 h-80 p-4"><SalesAreaChart data={chart} /></div>
     </div>
   );
 }
@@ -254,9 +255,9 @@ export function ProductsAdmin() {
             {!!selectedCount && <span className="text-sm font-semibold text-slate-500">{selectedCount} selectionne(s)</span>}
           </div>
         </div>
-        {products.isLoading ? <div className="p-4"><EmptyState title="Chargement" text="Les produits sont en cours de chargement." /></div> : products.isError ? <div className="p-4"><ErrorState onRetry={() => products.refetch()} /></div> : products.data?.results.length ? <><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr><th className="p-3"><input aria-label="Selectionner la page" type="checkbox" checked={pageIds.length > 0 && selected.length === pageIds.length && !allFilteredSelected} onChange={(e) => selectPage(e.target.checked)} /></th><th className="p-3">Image</th><th className="p-3">Produit</th><th className="p-3">SKU</th><th className="p-3">Categorie</th><th className="p-3">Marque</th><th className="p-3">Prix</th><th className="p-3">Prix promo</th><th className="p-3">Variantes</th><th className="p-3">Statut</th><th className="p-3">Date</th><th className="p-3">Actions</th></tr></thead><tbody>{products.data.results.map((product) => {
+        {products.isLoading ? <div className="p-4"><EmptyState title="Chargement" text="Les produits sont en cours de chargement." /></div> : products.isError ? <div className="p-4"><ErrorState onRetry={() => products.refetch()} /></div> : products.data?.results.length ? <><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-mist"><tr><th className="p-3"><input aria-label="Selectionner la page" type="checkbox" checked={pageIds.length > 0 && selected.length === pageIds.length && !allFilteredSelected} onChange={(e) => selectPage(e.target.checked)} /></th><th className="p-3">Image</th><th className="p-3">Produit</th><th className="p-3">SKU</th><th className="p-3">Categorie</th><th className="p-3">Marque</th><th className="p-3">Prix</th><th className="p-3">Prix promo</th><th className="p-3">Variantes</th><th className="p-3">Statut</th><th className="p-3">Stock</th><th className="p-3">Date</th><th className="p-3">Actions</th></tr></thead><tbody>{products.data.results.map((product) => {
           const mainImage = product.images?.find((image) => image.is_main)?.image || product.images?.[0]?.image;
-          return <tr key={product.id} className="border-t"><td className="p-3"><input type="checkbox" checked={allFilteredSelected || selected.includes(product.id)} onChange={(e) => { setAllFilteredSelected(false); setSelected((ids) => e.target.checked ? [...new Set([...ids, product.id])] : ids.filter((id) => id !== product.id)); }} /></td><td className="p-3">{mainImage ? <img className="h-12 w-12 rounded-dolphin object-cover" src={mediaUrl(mainImage)} alt={product.name} /> : <div className="h-12 w-12 rounded-dolphin bg-mist" />}</td><td className="p-3 font-semibold">{product.name}</td><td className="p-3">{product.sku}</td><td className="p-3">{product.category?.name || '-'}</td><td className="p-3">{product.brand?.name || '-'}</td><td className="p-3">{money(product.regular_price)}</td><td className="p-3">{product.promotional_price ? money(product.promotional_price) : '-'}</td><td className="p-3">{product.variants.length}</td><td className="p-3"><span className="badge bg-ocean/10 text-ocean">{product.status}</span></td><td className="p-3">{product.created_at ? new Date(product.created_at).toLocaleDateString('fr-MA') : '-'}</td><td className="flex gap-2 p-3"><button className="btn-secondary" onClick={() => { setEditing(product); setOpen(true); }}><Edit className="h-4 w-4" /></button><button className="btn-secondary" onClick={() => api.post(`/products/${product.slug}/duplicate/`).then(() => { toast.success('Produit duplique'); refresh(); })}><Copy className="h-4 w-4" /></button><button className="btn-secondary" onClick={() => api.post(`/products/${product.slug}/${product.status === 'ARCHIVED' ? 'restore' : 'archive'}/`).then(refresh)}>{product.status === 'ARCHIVED' ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}</button><button className="btn-secondary text-coral" onClick={() => setDeleting(product)}><Trash2 className="h-4 w-4" /></button></td></tr>;
+          return <tr key={product.id} className="border-t"><td className="p-3"><input type="checkbox" checked={allFilteredSelected || selected.includes(product.id)} onChange={(e) => { setAllFilteredSelected(false); setSelected((ids) => e.target.checked ? [...new Set([...ids, product.id])] : ids.filter((id) => id !== product.id)); }} /></td><td className="p-3">{mainImage ? <img className={`h-12 w-12 rounded-dolphin object-cover ${product.is_sold_out ? 'opacity-60 grayscale' : ''}`} src={mediaUrl(mainImage)} alt={product.name} /> : <div className="h-12 w-12 rounded-dolphin bg-mist" />}</td><td className="p-3 font-semibold">{product.name}</td><td className="p-3">{product.sku}</td><td className="p-3">{product.category?.name || '-'}</td><td className="p-3">{product.brand?.name || '-'}</td><td className="p-3">{money(product.regular_price)}</td><td className="p-3">{product.promotional_price ? money(product.promotional_price) : '-'}</td><td className="p-3">{product.variants.length}</td><td className="p-3"><span className="badge bg-ocean/10 text-ocean">{product.status}</span></td><td className="p-3"><span className={`badge ${product.is_sold_out ? 'bg-coral text-white' : 'bg-success/10 text-success'}`}>{product.is_sold_out ? 'Sold out' : 'Disponible'}</span></td><td className="p-3">{product.created_at ? new Date(product.created_at).toLocaleDateString('fr-MA') : '-'}</td><td className="flex gap-2 p-3"><button className="btn-secondary" onClick={() => { setEditing(product); setOpen(true); }}><Edit className="h-4 w-4" /></button><button className="btn-secondary" onClick={() => api.post(`/products/${product.slug}/duplicate/`).then(() => { toast.success('Produit duplique'); refresh(); })}><Copy className="h-4 w-4" /></button><button className="btn-secondary" onClick={() => api.post(`/products/${product.slug}/${product.status === 'ARCHIVED' ? 'restore' : 'archive'}/`).then(refresh)}>{product.status === 'ARCHIVED' ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}</button><button className="btn-secondary text-coral" onClick={() => setDeleting(product)}><Trash2 className="h-4 w-4" /></button></td></tr>;
         })}</tbody></table></div><div className="p-4"><Pagination count={products.data.count} page={page} onPage={(nextPage) => { setPage(nextPage); setSelected([]); setAllFilteredSelected(false); }} pageSize={12} /></div></> : <div className="p-4"><EmptyState title="Aucun produit disponible pour le moment." text="" /></div>}
       </div>
       {open && <ProductModal product={editing} categories={categories.data?.results || []} brands={brands.data?.results || []} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); refresh(); }} />}
@@ -395,6 +396,7 @@ function ProductModal({ product, categories, brands, onClose, onSaved, embedded 
     short_description: product?.short_description || '',
     description: product?.description || '',
     status: product?.status || 'DRAFT',
+    is_sold_out: Boolean(product?.is_sold_out),
     featured: Boolean(product?.featured),
     new_arrival: Boolean(product?.new_arrival),
     bestseller: Boolean(product?.bestseller),
@@ -460,7 +462,7 @@ function ProductModal({ product, categories, brands, onClose, onSaved, embedded 
         {formError && <div className="rounded-dolphin bg-coral/10 p-3 text-sm font-semibold text-coral">{formError}</div>}
         <div className="grid gap-4 md:grid-cols-2"><FormField required label="Nom" value={form.name} onChange={(e) => set('name', e.target.value)} /><FormField required label="SKU unique" value={form.sku} onChange={(e) => set('sku', e.target.value)} /><SelectField required label="Categorie" value={form.category_id} onChange={(e) => set('category_id', e.target.value)}><option value="">Categorie</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</SelectField><SelectField label="Marque" value={form.brand_id} onChange={(e) => set('brand_id', e.target.value)}><option value="">Marque</option>{brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</SelectField><FormField required label="Prix normal" type="number" step="0.01" value={form.regular_price} onChange={(e) => set('regular_price', e.target.value)} /><FormField label="Prix promo" type="number" step="0.01" value={form.promotional_price || ''} onChange={(e) => set('promotional_price', e.target.value)} /><SelectField label="Statut" value={form.status} onChange={(e) => set('status', e.target.value)}><option value="DRAFT">Brouillon</option><option value="ACTIVE">Actif</option><option value="ARCHIVED">Archive</option></SelectField></div>
         <textarea className="input" placeholder="Description courte" value={form.short_description} onChange={(e) => set('short_description', e.target.value)} /><textarea className="input min-h-28" placeholder="Description" value={form.description} onChange={(e) => set('description', e.target.value)} />
-        <div className="grid gap-3 sm:grid-cols-3"><label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={form.featured} onChange={(e) => set('featured', e.target.checked)} /> Vedette</label><label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={form.new_arrival} onChange={(e) => set('new_arrival', e.target.checked)} /> Nouveaute</label><label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={form.bestseller} onChange={(e) => set('bestseller', e.target.checked)} /> Bestseller</label></div>
+        <div className="grid gap-3 sm:grid-cols-4"><label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={form.is_sold_out} onChange={(e) => set('is_sold_out', e.target.checked)} /> Sold out</label><label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={form.featured} onChange={(e) => set('featured', e.target.checked)} /> Vedette</label><label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={form.new_arrival} onChange={(e) => set('new_arrival', e.target.checked)} /> Nouveaute</label><label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={form.bestseller} onChange={(e) => set('bestseller', e.target.checked)} /> Bestseller</label></div>
         <div className="grid gap-3"><h3 className="font-heading text-lg font-bold">Variantes</h3>{form.variants_payload.map((variant, index) => <div key={index} className="grid gap-2 rounded-dolphin border p-3 md:grid-cols-6"><input className="input" placeholder="SKU variante" value={variant.sku} onChange={(e) => updateVariant(index, 'sku', e.target.value, form, set)} /><input className="input" placeholder="Couleur" value={variant.color} onChange={(e) => updateVariant(index, 'color', e.target.value, form, set)} /><input className="input" placeholder="Taille" value={variant.size} onChange={(e) => updateVariant(index, 'size', e.target.value, form, set)} /><input className="input" placeholder="Capacite" value={variant.capacity} onChange={(e) => updateVariant(index, 'capacity', e.target.value, form, set)} /><input className="input" type="number" step="0.01" placeholder="Prix propre" value={variant.price_override || ''} onChange={(e) => updateVariant(index, 'price_override', e.target.value, form, set)} /><button type="button" className="btn-secondary text-coral" onClick={() => set('variants_payload', form.variants_payload.filter((_, i) => i !== index))}><Trash2 className="h-4 w-4" /></button></div>)}<button type="button" className="btn-secondary" onClick={() => set('variants_payload', [...form.variants_payload, { sku: `${form.sku}-V${form.variants_payload.length + 1}`, color: '', size: '', capacity: '', price_override: '' }])}><Plus className="h-4 w-4" />Ajouter une variante</button></div>
         <div className="grid gap-3"><ImageUploader label="Ajouter des images produit" files={files} onChange={setFiles} />{productImages.length ? <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{productImages.map((image) => <div key={image.id} className="rounded-dolphin border p-2"><img className="aspect-square w-full rounded-dolphin object-cover" src={mediaUrl(image.image)} alt={image.alt_text || savedProduct?.name || 'Produit'} /><div className="mt-2 grid gap-2"><button type="button" className="btn-secondary" disabled={imageBusy === image.id || image.is_main} onClick={() => setMainImage(image.id)}>{image.is_main ? 'Principale' : 'Definir principale'}</button><button type="button" className="btn-secondary text-coral" disabled={imageBusy === image.id} onClick={() => deleteImage(image.id)}>Supprimer</button></div></div>)}</div> : null}</div>
         <button className="btn-primary"><Save className="h-4 w-4" />Enregistrer</button>
@@ -1453,6 +1455,7 @@ function DesignSettingsAdmin() {
   const { data } = useQuery({ queryKey: ['design-settings'], queryFn: async () => (await api.get<Record<string, string>>('/settings/design/')).data });
   const [form, setForm] = useState<Record<string, string>>({});
   const current = { ...(data || {}), ...form };
+  const setSetting = (key: string, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
   const save = async (event: FormEvent) => {
     event.preventDefault();
     await api.patch('/settings/design/', current);
@@ -1460,7 +1463,45 @@ function DesignSettingsAdmin() {
     setForm({});
     qc.invalidateQueries({ queryKey: ['design-settings'] });
   };
-  return <AdminCrudShell title="Parametres boutique"><form className="card grid gap-3 p-4 md:grid-cols-2" onSubmit={save}>{['store_name', 'tagline', 'announcement', 'hero_eyebrow', 'primary_color', 'accent_color', 'logo_url', 'footer_text'].map((key) => <label key={key} className="grid gap-1 font-semibold">{key.replace(/_/g, ' ')}<input className="input" type={key.includes('color') ? 'color' : 'text'} value={current[key] || ''} onChange={(event) => setForm((prev) => ({ ...prev, [key]: event.target.value }))} /></label>)}<button className="btn-primary"><Save className="h-4 w-4" />Enregistrer</button></form></AdminCrudShell>;
+  return (
+    <AdminCrudShell title="Parametres boutique">
+      <form className="grid gap-5" onSubmit={save}>
+        <section className="card grid gap-3 p-4 md:grid-cols-2">
+          <h2 className="font-heading text-xl font-bold md:col-span-2">Barre annonce en haut</h2>
+          <label className="grid gap-1 font-semibold md:col-span-2">
+            Texte de la barre
+            <input className="input" value={current.announcement_text || ''} onChange={(event) => setSetting('announcement_text', event.target.value)} />
+          </label>
+          <label className="grid gap-1 font-semibold">
+            Animation
+            <select className="input" value={current.announcement_scroll_direction || 'none'} onChange={(event) => setSetting('announcement_scroll_direction', event.target.value)}>
+              <option value="none">Sans animation</option>
+              <option value="rtl">De droite vers gauche</option>
+              <option value="ltr">De gauche vers droite</option>
+            </select>
+          </label>
+          <label className="grid gap-1 font-semibold">
+            Couleur fond
+            <input className="input" type="color" value={current.announcement_bg_color || '#FF6B4A'} onChange={(event) => setSetting('announcement_bg_color', event.target.value)} />
+          </label>
+          <label className="grid gap-1 font-semibold">
+            Couleur texte
+            <input className="input" type="color" value={current.announcement_text_color || '#FFFFFF'} onChange={(event) => setSetting('announcement_text_color', event.target.value)} />
+          </label>
+        </section>
+        <section className="card grid gap-3 p-4 md:grid-cols-2">
+          <h2 className="font-heading text-xl font-bold md:col-span-2">Page accueil</h2>
+          {['store_name', 'hero_eyebrow', 'hero_title', 'hero_subtitle', 'primary_color', 'accent_color', 'footer_text'].map((key) => (
+            <label key={key} className="grid gap-1 font-semibold">
+              {key.replace(/_/g, ' ')}
+              <input className="input" type={key.includes('color') ? 'color' : 'text'} value={current[key] || ''} onChange={(event) => setSetting(key, event.target.value)} />
+            </label>
+          ))}
+        </section>
+        <button className="btn-primary justify-self-start"><Save className="h-4 w-4" />Enregistrer</button>
+      </form>
+    </AdminCrudShell>
+  );
 }
 
 function ReportsAdmin() {

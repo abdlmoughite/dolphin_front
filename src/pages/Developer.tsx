@@ -105,7 +105,7 @@ const sections = [
   ['products', 'Produits', Package],
   ['categories', 'Categories', Tag],
   ['brands', 'Marques', Tag],
-  ['home-design', 'Home design', Settings],
+  ['home-design', 'Barre annonce / Home', Settings],
   ['banners', 'Bannieres', ImageIcon],
   ['orders', 'Commandes', ShoppingBag],
   ['ozon-parcels', 'Ozon colis', Send],
@@ -203,12 +203,35 @@ function DeveloperHomeDesign() {
     <div className="grid gap-6">
       <div>
         <p className="text-sm font-bold uppercase text-ocean">Boutique</p>
-        <h1 className="font-heading text-3xl font-bold">Home design</h1>
-        <p className="mt-2 max-w-2xl text-sm text-slate-600">Modifiez les textes, boutons, arguments et couleurs de la page d'accueil.</p>
+        <h1 className="font-heading text-3xl font-bold">Barre annonce / Home design</h1>
+        <p className="mt-2 max-w-2xl text-sm text-slate-600">Modifiez la barre rouge en haut, son animation, les textes et couleurs de la page d'accueil.</p>
       </div>
       <form className="grid gap-6" onSubmit={save}>
         <div className="card grid gap-4 p-5 md:grid-cols-2">
-          {homeDesignFields.map((field) => (
+          <h2 className="font-heading text-xl font-bold md:col-span-2">Barre annonce en haut</h2>
+          <label className="grid gap-1 font-semibold md:col-span-2">
+            Texte
+            <input className="input" value={current.announcement_text || ''} onChange={(event) => set('announcement_text', event.target.value)} />
+          </label>
+          <label className="grid gap-1 font-semibold">
+            Animation
+            <select className="input" value={current.announcement_scroll_direction || 'none'} onChange={(event) => set('announcement_scroll_direction', event.target.value)}>
+              <option value="none">Sans animation</option>
+              <option value="rtl">De droite vers gauche</option>
+              <option value="ltr">De gauche vers droite</option>
+            </select>
+          </label>
+          <label className="grid gap-1 font-semibold">
+            Couleur fond
+            <input className="input" type="color" value={current.announcement_bg_color || '#FF6B4A'} onChange={(event) => set('announcement_bg_color', event.target.value)} />
+          </label>
+          <label className="grid gap-1 font-semibold">
+            Couleur texte
+            <input className="input" type="color" value={current.announcement_text_color || '#FFFFFF'} onChange={(event) => set('announcement_text_color', event.target.value)} />
+          </label>
+        </div>
+        <div className="card grid gap-4 p-5 md:grid-cols-2">
+          {homeDesignFields.filter((field) => !['announcement_text', 'announcement_bg_color', 'announcement_text_color'].includes(field.key)).map((field) => (
             <label key={field.key} className={`grid gap-1 font-semibold ${field.area ? 'md:col-span-2' : ''}`}>
               {field.label}
               {field.area ? (
